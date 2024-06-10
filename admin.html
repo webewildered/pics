@@ -1,0 +1,90 @@
+<html>
+<head> 
+<title>hello admin</title>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script>
+
+function getAdminKey()
+{
+    return window.location.search.substring(1);
+}
+
+function addGallery(galleryKey)
+{
+    const galleryList = $('#galleryList');
+    const li = $('<li>').appendTo(galleryList);
+    $('<a>').attr('href', 'index.html?' + galleryKey).text(galleryKey).appendTo(li);
+    $('<span>').text(' ').appendTo(li);
+    $('<button>').text('delete').click(() => deleteGallery(galleryKey)).appendTo(li);
+}
+
+// On page load
+window.onload = () =>
+{
+    // Load the gallery list
+    fetch('admin/' + getAdminKey() + '.json')
+        .then((response) => response.json())
+        .then((json) =>
+        {
+            if (json.type == "admin")
+            {
+                for (const galleryKey of json.galleries)
+                {
+                    addGallery(galleryKey);
+                }
+                $('#adminPanel').show();
+            }
+        })
+        .catch((error) =>
+        {
+            $('<span>error: ' + error + '</span>').appendTo($('body'));
+        });
+}
+
+// On create gallery button click
+function createGallery()
+{
+    const xhr = new XMLHttpRequest();
+	const url = "api/createGallery";
+	xhr.open("POST", url, true);
+	xhr.setRequestHeader("Content-Type", "application/json");
+	xhr.onreadystatechange = function ()
+	{
+		if (xhr.readyState === 4)
+		{
+			if (xhr.status === 200)
+			{
+                addGallery(xhr.responseText);
+			}
+			else
+			{
+                console.log('Create failed: ' + xhr.status + ' / ' + xhr.responseText);
+			}
+		}
+	};
+	
+    const request = {};
+    request.adminKey = getAdminKey();
+    request.name = $('#galleryName').val();
+	var stringData = JSON.stringify(request);
+	xhr.send(stringData);
+}
+
+// On create gallery button click
+function deleteGallery(gallery)
+{
+    console.log('delete it ' + gallery);
+}
+
+</script>
+</head>
+<body>
+    <div id="adminPanel" hidden>
+        <input type="text" placeholder="New gallery name" id="galleryName"></input>
+        <button onclick="createGallery()">Create gallery</button>
+        <br />
+        <ul id="galleryList">
+        </ul>
+    </div>
+</body>
+</html>

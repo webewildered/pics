@@ -1,0 +1,59 @@
+<html>
+<head> 
+<title>Pics</title>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script>
+
+function getGalleryKey()
+{
+    return window.location.search.substring(1);
+}
+
+window.onload = () =>
+{
+    $('#uploadButton').on('click', (event) =>
+    {
+        event.preventDefault();
+        const form = document.querySelector('#uploadForm');
+        const formData = new FormData(form);
+        formData.append("galleryKey", getGalleryKey());
+        fetch('api/upload', { method: 'POST', body: formData })
+            .then(response => response.text())
+            .then(text => console.log(text));
+        return false;
+    });
+
+    // Load the gallery
+    const thumbs = $('#thumbs');
+    fetch('galleries/' + getGalleryKey() + '.json')
+        .then((response) => response.json())
+        .then((gallery) =>
+        {
+            for (const image of gallery.images)
+            {
+                $('<img>').attr('src', 'images/' + image.file).appendTo(thumbs);
+                $('<br>').appendTo(thumbs);
+            }
+        })
+        .catch((error) =>
+        {
+            $('<span>error: ' + error + '</span>').appendTo(thumbs);
+        });
+}
+
+</script>
+</head>
+<body>
+    <!-- top bar -->
+    <div>
+        <form id="uploadForm" enctype="multipart/form-data">
+            <input type="file" id="fileInput" name="files" multiple accept="image/jpeg"/>
+            <button id="uploadButton">+</button>
+        </form>
+    </div>
+
+    <!-- thumbnail grid -->
+    <div id="thumbs">
+    </div>
+</body>
+</html>
