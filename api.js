@@ -3,6 +3,7 @@ var multer  = require('multer')
 var fs = require('fs');
 var bases = require('bases')
 var rand = require('random-seed').create();
+const sharp = require('sharp');
 var app = express();
 
 //
@@ -138,12 +139,20 @@ app.post('/api/upload', upload.array('files'), function (req, res)
         {
             // Add the images to the gallery
             var gallery = JSON.parse(data);
+            const thumbSize = 200;
             for (const file of req.files)
             {
+                const thumb = makeKey() + '.jpg';
+                sharp(file.path)
+                    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
+                    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
+                    .toFile('thumbs/' + thumb);
+                
                 gallery.images.push(
                     {
                         name: file.originalname,
-                        file: file.filename
+                        file: file.filename,
+                        thumb: thumb
                     }
                 );
             }

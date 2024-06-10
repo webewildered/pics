@@ -31,7 +31,7 @@ window.onload = () =>
         {
             for (const image of gallery.images)
             {
-                $('<img>').attr('src', 'images/' + image.file).appendTo(thumbs);
+                $('<img>').attr('src', 'thumbs/' + image.thumb).appendTo(thumbs);
                 $('<br>').appendTo(thumbs);
             }
         })
