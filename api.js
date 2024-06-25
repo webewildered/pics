@@ -1,10 +1,15 @@
-var express = require('express');
-var multer  = require('multer')
-var fs = require('fs');
-var bases = require('bases')
-var rand = require('random-seed').create();
+const express = require('express');
+const multer  = require('multer')
+const fs = require('fs');
+const bases = require('bases')
+const rand = require('random-seed').create();
 const sharp = require('sharp');
-var app = express();
+const app = express();
+const path = require('path');
+const heicConvert = require('heic-convert');
+
+const jpegType = 'image/jpeg';
+const heicType = 'image/heic';
 
 //
 // Utilities
@@ -69,7 +74,7 @@ app.post('/api/createGallery', function (req, res)
                 try
                 {
                     adminJson = JSON.parse(data);
-                    if (adminJson.type == "admin")
+                    if (adminJson.type === 'admin')
                     {
                         // Create the gallery
                         const galleryKey = makeKey();
@@ -107,68 +112,104 @@ var multerStorage = multer.diskStorage(
 {
     destination: function (req, file, cb)
     {
-        cb(null, 'images')
+        var dir;
+        if (file.mimetype === jpegType) { dir = 'images'; }
+        else { dir = 'originals'; }
+        cb(null, dir) 
     },
     filename: function (req, file, cb)
     {
-        cb(null, makeKey() + '.jpg');
+        var ext = path.extname(file.originalname).substring(1);
+        cb(null, makeKey() + '.' + ext);
     },
 });
 var multerOpts = {
     storage: multerStorage,
     fileFilter: function (req, file, cb)
     {
-        cb(null, file.mimetype === "image/jpeg");
+        cb(null, true);
     }
 };
 var upload = multer(multerOpts)
 
-app.post('/api/upload', upload.array('files'), function (req, res)
+app.post('/api/upload', upload.array('files'), async function (req, res)
 {
     // Read the gallery file to validate the key
     const galleryPath = 'galleries/' + req.body.galleryKey + '.json';
-    fs.readFile(galleryPath, (err, data) =>
+    var gallery;
+    try
     {
-        if (err)
+        const data = fs.readFileSync(galleryPath);
+        gallery = JSON.parse(data);
+    }
+    catch (err)
+    {
+        fail(res, 'gallery read error: ' + err);
+        return;
+    }
+
+    // Add the images to the gallery
+    const thumbSize = 200;
+    for (const file of req.files)
+    {
+        // Convert the image if necessary
+        const originalFileName = file.filename;
+        var fileName = originalFileName;
+        if (file.mimetype !== jpegType)
         {
-            fail(res, 'fs.readFile() error: ' + err);
-            return;
+            // heic files come through with octet-stream mimetype for some reason, id them by extension instead
+            if (path.extname(originalFileName).toLowerCase() === ".heic")
+            {
+                try
+                {
+                    const heic = fs.readFileSync('originals/' + originalFileName);
+                    const converted = await heicConvert({buffer: heic, format: 'JPEG', quality: 1});
+                    fileName = makeKey() + '.jpg';
+                    fs.writeFileSync('images/' + fileName, converted);
+                }
+                catch (err)
+                {
+                    fail(res, 'heic convert error: ' + err.toString());
+                    return;
+                }
+            }
+            else
+            {
+                // Can't convert the file
+                // TODO: need to report failures to the client
+                fs.unlinkSync(originalFileName);
+            }
         }
         
-        try
-        {
-            // Add the images to the gallery
-            var gallery = JSON.parse(data);
-            const thumbSize = 200;
-            for (const file of req.files)
+        // Create the thumbnail
+        const thumbFileName = makeKey() + '.jpg';
+        sharp('images/' + fileName)
+        .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
+        .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
+        .toFile('thumbs/' + thumbFileName);
+        
+        gallery.images.push(
             {
-                const thumb = makeKey() + '.jpg';
-                sharp(file.path)
-                    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
-                    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
-                    .toFile('thumbs/' + thumb);
-                
-                gallery.images.push(
-                    {
-                        name: file.originalname,
-                        file: file.filename,
-                        thumb: thumb
-                    }
-                );
+                title: file.originalname,
+                file: fileName,
+                thumb: thumbFileName,
+                original: originalFileName
             }
-            
-            // Write back the updated gallery
-            fs.writeFile(galleryPath, JSON.stringify(gallery), () =>
-            {
-                res.send('uploaded ' + req.files.length + ' images');
-            });
-        }
-        catch (error)
-        {
-            fail(res, 'exception: ' + error);
-            return;
-        }
-    });
+        );
+    }
+    
+    // Write back the updated gallery
+    try
+    {
+        fs.writeFileSync(galleryPath, JSON.stringify(gallery));
+    }
+    catch (err)
+    {
+        fail(res, 'gallery write error: ' + err);
+        return;
+    }
+
+    res.send('uploaded ' + req.files.length + ' images');
 });
 
 app.post('/api/bar', function (req, res) {
