@@ -15,12 +15,6 @@ const heicType = 'image/heic';
 // Utilities
 //
 
-function fail(res, error)
-{
-    res.writeHead(500, {'Content-Type': 'text/plain'});
-    res.end(error);
-}
-
 function makeKey ()
 {
     const minValue = bases.fromBase36('00000');
@@ -46,6 +40,11 @@ function makeKey ()
 
 app.post('/api/createGallery', function (req, res)
 {
+    const fail = (error) =>
+    {
+        res.writeHead(500, {'Content-Type': 'text/plain'});
+        res.end(error);
+    }
 
     const { headers } = req;
     if (headers['content-type'] == 'application/json')
@@ -67,7 +66,7 @@ app.post('/api/createGallery', function (req, res)
             {
                 if (err)
                 {
-                    fail(res, 'fs.readFile() error: ' + err);
+                    fail('fs.readFile() error: ' + err);
                     return;
                 }
 
@@ -96,7 +95,7 @@ app.post('/api/createGallery', function (req, res)
                 }
                 catch (error)
                 {
-                    fail(res, 'exception: ' + error);
+                    fail('exception: ' + error);
                     return;
                 }
             });
@@ -134,6 +133,12 @@ var upload = multer(multerOpts)
 
 app.post('/api/upload', upload.array('files'), async function (req, res)
 {
+    res.writeHead(200, {'Content-Type': 'text/plain'});
+    const fail = (error) =>
+    {
+        res.end({'error': error});
+    }
+
     // Read the gallery file to validate the key
     const galleryPath = 'galleries/' + req.body.galleryKey + '.json';
     var gallery;
@@ -144,7 +149,7 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
     }
     catch (err)
     {
-        fail(res, 'gallery read error: ' + err);
+        fail('gallery read error: ' + err);
         return;
     }
 
@@ -169,7 +174,7 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
                 }
                 catch (err)
                 {
-                    fail(res, 'heic convert error: ' + err.toString());
+                    fail('heic convert error: ' + err.toString());
                     return;
                 }
             }
@@ -183,19 +188,23 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
         
         // Create the thumbnail
         const thumbFileName = makeKey() + '.jpg';
-        sharp('images/' + fileName)
+        await sharp('images/' + fileName)
         .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
         .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
         .toFile('thumbs/' + thumbFileName);
-        
-        gallery.images.push(
-            {
-                title: file.originalname,
-                file: fileName,
-                thumb: thumbFileName,
-                original: originalFileName
-            }
-        );
+
+        // Update the gallery
+        const galleryEntry = 
+        {
+            title: file.originalname,
+            file: fileName,
+            thumb: thumbFileName,
+            original: originalFileName
+        };
+        gallery.images.push(galleryEntry);
+
+        // Send the new gallery entry to the client
+        res.write(JSON.stringify(galleryEntry));
     }
     
     // Write back the updated gallery
@@ -205,11 +214,11 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
     }
     catch (err)
     {
-        fail(res, 'gallery write error: ' + err);
+        fail('gallery write error: ' + err);
         return;
     }
 
-    res.send('uploaded ' + req.files.length + ' images');
+    res.end();
 });
 
 app.post('/api/bar', function (req, res) {

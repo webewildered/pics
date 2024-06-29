@@ -9,19 +9,41 @@ function getGalleryKey()
     return window.location.search.substring(1);
 }
 
+function addImage(galleryEntry)
+{
+    $('<img>').attr('src', 'thumbs/' + galleryEntry.thumb).appendTo(thumbs);
+    $('<br>').appendTo(thumbs);
+}
+
+async function upload(event)
+{
+    event.preventDefault();
+    const form = document.querySelector('#uploadForm');
+    const formData = new FormData(form);
+    formData.append("galleryKey", getGalleryKey());
+    const response = await fetch('api/upload', { method: 'POST', body: formData });
+    var count = 0;
+    for await (const chunk of response.body)
+    {
+        const text = new TextDecoder().decode(chunk);
+        console.log(`chunk: ${text}`);
+        const galleryEntry = JSON.parse(text);
+        if (Object.hasOwn(galleryEntry, 'error'))
+        {
+            console.log('Error: ' + galleryEntry.error);
+        }
+        else
+        {
+            addImage(galleryEntry);
+            count++;
+        }
+    }
+    console.log('Uploaded ' + count + ' images');
+}
+
 window.onload = () =>
 {
-    $('#uploadButton').on('click', (event) =>
-    {
-        event.preventDefault();
-        const form = document.querySelector('#uploadForm');
-        const formData = new FormData(form);
-        formData.append("galleryKey", getGalleryKey());
-        fetch('api/upload', { method: 'POST', body: formData })
-            .then(response => response.text())
-            .then(text => console.log(text));
-        return false;
-    });
+    $('#uploadButton').on('click', upload);
 
     // Load the gallery
     const thumbs = $('#thumbs');
@@ -29,10 +51,9 @@ window.onload = () =>
         .then((response) => response.json())
         .then((gallery) =>
         {
-            for (const image of gallery.images)
+            for (const galleryEntry of gallery.images)
             {
-                $('<img>').attr('src', 'thumbs/' + image.thumb).appendTo(thumbs);
-                $('<br>').appendTo(thumbs);
+                addImage(galleryEntry);
             }
         })
         .catch((error) =>
