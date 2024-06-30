@@ -1,18 +1,64 @@
 <html>
 <head> 
 <title>Pics</title>
+
+<!-- Style -->
+<style>
+
+.thumb
+{
+    margin-top:2px;
+    margin-right:2px;
+}
+.thumb-end
+{
+    margin-top:2px;
+    object-fit:cover;
+}
+
+</style>
+
+<!-- Script -->
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 <script>
+
+const thumbRes = 200; // Native size of thumbnail images in px
+const thumbMargin = 2; // Horizontal space between thumbnails in px
+var thumbPitch = 0; // Number of thumbnails per row
+var thumbSize = 0; // Displayed thumbnail size
+var thumbSizeEnd = 0; // End thumbnail's width
 
 function getGalleryKey()
 {
     return window.location.search.substring(1);
 }
 
+function styleImage(imageElement, isEnd)
+{
+    if (isEnd)
+    {
+        imageElement
+            .attr('width', thumbSizeEnd)
+            .attr('height', thumbSize)
+            .attr('class', 'thumb-end');
+    }
+    else
+    {
+        imageElement
+            .attr('width', thumbSize)
+            .attr('height', thumbSize)
+            .attr('class', 'thumb');
+    }
+    return imageElement;
+}
+
 function addImage(galleryEntry)
 {
-    $('<img>').attr('src', 'thumbs/' + galleryEntry.thumb).appendTo(thumbs);
-    $('<br>').appendTo(thumbs);
+    const image = $('<img>')
+        .attr('src', 'thumbs/' + galleryEntry.thumb)
+        .appendTo(thumbs);
+    const isEnd = ($('#thumbs').children().length % thumbPitch) == 0;
+    styleImage(image, isEnd);
 }
 
 async function upload(event)
@@ -61,14 +107,54 @@ window.onload = () =>
         {
             $('<span>error: ' + error + '</span>').appendTo(thumbs);
         });
+    layout();
+}
+
+function layout()
+{
+    const newThumbPitch = Math.ceil((document.body.clientWidth + thumbMargin) / (thumbRes + thumbMargin));
+    const newThumbSize = Math.ceil((document.body.clientWidth + thumbMargin) / newThumbPitch - thumbMargin);
+    const newThumbSizeEnd = document.body.clientWidth - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
+    if (newThumbPitch !== thumbPitch || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
+    {
+        thumbPitch = newThumbPitch;
+        thumbSize = newThumbSize;
+        thumbSizeEnd = newThumbSizeEnd;
+        console.log('width ' + document.body.clientWidth + ' pitch ' + thumbPitch + ' size ' + thumbSize);
+        
+        styleImage($('#thumbs').children(), false);
+        styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
+    }
+
+    // setTimeout(() => 
+    // {
+    //     console.log('aaa');
+    //     window.scrollTo(0, 1000)
+    // }, 2000);
+}
+window.onresize = layout;
+
+onwheel = (event) =>
+{
+    switch (event.deltaMode)
+    {
+        case WheelEvent.DOM_DELTA_PIXEL: window.scrollBy(0, event.deltaY); break;
+        case WheelEvent.DOM_DELTA_LINE: window.scrollByLines(0, event.deltaY); break;
+        case WheelEvent.DOM_DELTA_PAGE: window.scrollByPages(0, event.deltaY); break;
+    }
+}
+
+onscroll = (event) =>
+{
+    console.log('scrolled');
 }
 
 </script>
 </head>
-<body>
+<body style="background-color:black;margin:0;overflow:hidden;">
     <!-- top bar -->
-    <div>
-        <form id="uploadForm" enctype="multipart/form-data">
+    <div class="header" style="background-color:#333;padding:10px">
+        <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
             <input type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic"/>
             <button id="uploadButton">+</button>
         </form>
