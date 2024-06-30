@@ -18,22 +18,23 @@ function addImage(galleryEntry)
 async function upload(event)
 {
     event.preventDefault();
-    const form = document.querySelector('#uploadForm');
-    const formData = new FormData(form);
-    formData.append("galleryKey", getGalleryKey());
-    const response = await fetch('api/upload', { method: 'POST', body: formData });
+
+    const files = document.getElementById('fileInput');
     var count = 0;
-    for await (const chunk of response.body)
+    for (const file of files.files)
     {
-        const text = new TextDecoder().decode(chunk);
-        console.log(`chunk: ${text}`);
-        const galleryEntry = JSON.parse(text);
+        const formData = new FormData();
+        formData.append('galleryKey', getGalleryKey());
+        formData.append('image', file);
+        const response = await fetch('api/upload', { method: 'POST', body: formData });
+        const galleryEntry = await response.json();
         if (Object.hasOwn(galleryEntry, 'error'))
         {
             console.log('Error: ' + galleryEntry.error);
         }
         else
         {
+            console.log('Added ' + galleryEntry.title);
             addImage(galleryEntry);
             count++;
         }

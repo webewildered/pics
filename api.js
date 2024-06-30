@@ -8,12 +8,52 @@ const app = express();
 const path = require('path');
 const heicConvert = require('heic-convert');
 
-const jpegType = 'image/jpeg';
-const heicType = 'image/heic';
-
 //
 // Utilities
 //
+
+function getFileType(file, fileName)
+{
+    // Try to discern the type from known bytes at the beginning of the file.
+    // The given mimetype is not reliable, and I have seen files with the .heic extension that are actually jpegs.
+    const signatures =
+    [
+        {'type': 'jpeg', 'header': Buffer.from([0xFF, 0xD8, 0xFF, 0xDB]), 'offset': 0 },
+        {'type': 'jpeg', 'header': Buffer.from([0xFF, 0xD8, 0xFF, 0xE0]), 'offset': 0 },
+        {'type': 'jpeg', 'header': Buffer.from([0xFF, 0xD8, 0xFF, 0xEE]), 'offset': 0 },
+        {'type': 'jpeg', 'header': Buffer.from([0xFF, 0xD8, 0xFF, 0xE1]), 'offset': 0 },
+        {'type': 'heic', 'header': Buffer.from([0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63]), 'offset': 4 },
+    ];
+    for (const signature of signatures)
+    {
+        if (signature.header.compare(file, signature.offset, signature.offset + signature.header.length) == 0)
+        {
+            return signature.type;
+        }
+    }
+
+    // Temp: if the signature is unknown, report it for debugging. Remove this code later and fall back to the extension.
+    var sig = '';
+    for (i = 0; i < 16; i++)
+    {
+        sig = sig + ('0' + file[i].toString(16)).slice(-2) + ', ';
+    }
+    throw new Error('Unknown signature [' + sig + '] = "' + file.toString('ascii', 0, 16) + "'" );
+
+    // If that fails, try the extension
+    const ext = path.extname(fileName).toLowerCase();
+    if (ext === '.jpg' || ext === '.jpeg')
+    {
+        return 'jpeg';
+    }
+    if (ext === ".heic")
+    {
+        return 'heic';
+    }
+
+    // Unknown
+    return null;
+}
 
 function makeKey ()
 {
@@ -95,7 +135,7 @@ app.post('/api/createGallery', function (req, res)
                 }
                 catch (error)
                 {
-                    fail('exception: ' + error);
+                    fail('exception: ' + error.stack);
                     return;
                 }
             });
@@ -109,13 +149,7 @@ app.post('/api/createGallery', function (req, res)
 
 var multerStorage = multer.diskStorage(
 {
-    destination: function (req, file, cb)
-    {
-        var dir;
-        if (file.mimetype === jpegType) { dir = 'images'; }
-        else { dir = 'originals'; }
-        cb(null, dir) 
-    },
+    destination: function (req, file, cb) { cb(null, 'originals') },
     filename: function (req, file, cb)
     {
         var ext = path.extname(file.originalname).substring(1);
@@ -129,14 +163,13 @@ var multerOpts = {
         cb(null, true);
     }
 };
-var upload = multer(multerOpts)
-
-app.post('/api/upload', upload.array('files'), async function (req, res)
+var upload = multer(multerOpts);
+app.post('/api/upload', upload.single('image'), async function (req, res)
 {
-    res.writeHead(200, {'Content-Type': 'text/plain'});
+    res.writeHead(200, {'Content-Type': 'application/json'});
     const fail = (error) =>
     {
-        res.end({'error': error});
+        res.end(JSON.stringify({'error': error}));
     }
 
     // Read the gallery file to validate the key
@@ -149,63 +182,65 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
     }
     catch (err)
     {
-        fail('gallery read error: ' + err);
+        fail('gallery read error: ' + err.stack);
         return;
     }
 
-    // Add the images to the gallery
-    const thumbSize = 200;
-    for (const file of req.files)
+    // Check the file's type. Filename extension and mimetype are both unreliable.
+    const file = req.file;
+    var originalFileName = file.filename;
+    var fileName = file.filename;
+    try
     {
-        // Convert the image if necessary
-        const originalFileName = file.filename;
-        var fileName = originalFileName;
-        if (file.mimetype !== jpegType)
+        const image = fs.readFileSync('originals/' + originalFileName);
+        const type = getFileType(image, fileName);
+        if (type === 'jpeg')
         {
-            // heic files come through with octet-stream mimetype for some reason, id them by extension instead
-            if (path.extname(originalFileName).toLowerCase() === ".heic")
-            {
-                try
-                {
-                    const heic = fs.readFileSync('originals/' + originalFileName);
-                    const converted = await heicConvert({buffer: heic, format: 'JPEG', quality: 1});
-                    fileName = makeKey() + '.jpg';
-                    fs.writeFileSync('images/' + fileName, converted);
-                }
-                catch (err)
-                {
-                    fail('heic convert error: ' + err.toString());
-                    return;
-                }
-            }
-            else
-            {
-                // Can't convert the file
-                // TODO: need to report failures to the client
-                fs.unlinkSync(originalFileName);
-            }
+            // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
+            fileName = path.parse(fileName).name + '.jpg';
+            fs.renameSync('originals/' + originalFileName, 'images/' + fileName);
+            originalFileName = '';
         }
-        
-        // Create the thumbnail
-        const thumbFileName = makeKey() + '.jpg';
-        await sharp('images/' + fileName)
-        .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
-        .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
-        .toFile('thumbs/' + thumbFileName);
-
-        // Update the gallery
-        const galleryEntry = 
+        else if (type === 'heic')
         {
-            title: file.originalname,
-            file: fileName,
-            thumb: thumbFileName,
-            original: originalFileName
-        };
-        gallery.images.push(galleryEntry);
-
-        // Send the new gallery entry to the client
-        res.write(JSON.stringify(galleryEntry));
+            // Convert the heic to a jpeg
+            const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
+            fileName = makeKey() + '.jpg';
+            fs.writeFileSync('images/' + fileName, converted);
+        }
+        else
+        {
+            fail('Unknown file type');
+            fs.unlinkSync('originals/' + originalFileName);
+            return;
+        }
     }
+    catch (err)
+    {
+        fail('file error: ' + err.stack);
+        return;
+    }
+    
+    // Create the thumbnail
+    const thumbSize = 200;
+    const thumbFileName = makeKey() + '.jpg';
+    await sharp('images/' + fileName)
+    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
+    .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
+    .toFile('thumbs/' + thumbFileName);
+
+    // Update the gallery
+    const galleryEntry = 
+    {
+        title: file.originalname,
+        file: fileName,
+        thumb: thumbFileName,
+        original: originalFileName
+    };
+    gallery.images.push(galleryEntry);
+
+    // Send the new gallery entry to the client
+    res.write(JSON.stringify(galleryEntry));
     
     // Write back the updated gallery
     try
@@ -214,7 +249,7 @@ app.post('/api/upload', upload.array('files'), async function (req, res)
     }
     catch (err)
     {
-        fail('gallery write error: ' + err);
+        fail('gallery write error: ' + err.stack);
         return;
     }
 
