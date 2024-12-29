@@ -1,0 +1,208 @@
+<html>
+<head>
+<title>test page</title>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+<script>
+
+// Current scroll distance from top. scrollTop() is rounded to integer, this is not.
+var scroll = 0;
+
+// Desktop inputs (mouse wheel, keys) adjust the scroll target, scroll animates towards the
+// target with gain (decay per second)
+var scrollTarget = 0;
+const scrollGain = 0.99999999;
+
+var scrollTouch = false;
+
+let tLast;
+function animate(t)
+{
+    const dt = (t - tLast) * 1e-3;
+    tLast = t;
+    
+    // Clamp the scroll target
+    const scroller = $('#scroller');
+    scrollTarget = Math.max(scrollTarget, 0);
+    scrollTarget = Math.min(scrollTarget, scroller.prop('scrollHeight') - scroller.height());
+
+    // Touch scrolling and desktop scrolling animate differently
+    if (scrollTouch)
+    {
+        console.log('target ' + scrollTarget);
+        scroller.scrollTop(scrollTarget);
+    }
+    else
+    {
+        // Animate to the target
+        const diff = scrollTarget - scroll;
+        var newScroll;
+        const limit = 1;
+        if (Math.abs(diff) < limit)
+        {
+            newScroll = scrollTarget;
+        }
+        else
+        {
+            const gain = 0.99999999;
+            const factor = Math.pow(1 - gain, dt);
+            newScroll = scrollTarget - diff * factor;
+        }
+        scroller.scrollTop(Math.round(newScroll));
+        scroll = newScroll;
+    }
+
+    // Animate forever
+    requestAnimationFrame(animate);
+}
+
+onwheel = (event) =>
+{
+    scrollTouch = false;
+    if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL)
+    {
+        scrollTarget += event.deltaY;
+    }
+    // TODO maybe need to handle other modes
+}
+
+var touches = [];
+function getTouchIndex(eventTouch)
+{
+    for (let i = 0; i < touches.length; i++)
+    {
+        if (touches[i].identifier === eventTouch.identifier)
+        {
+            return i;
+        }
+    }
+    return -1;
+
+}
+
+function getTouch(eventTouch)
+{
+    let touchIndex = getTouchIndex(eventTouch);
+    return (touchIndex >= 0) ? touches[touchIndex] : null;
+}
+
+function removeTouch(eventTouch)
+{
+    let touchIndex = getTouchIndex(eventTouch);
+    if (touchIndex >= 0)
+    {
+        touches.splice(touchIndex, 1);
+    }
+}
+
+// TODO don't scroll on multitouch, probably stop scrolling when the touch count goes above 1 and then reenable scrolling once
+// it falls back to 1 or maybe 0
+
+function onTouchStart(event)
+{
+    scrollTouch = true;
+    for (const eventTouch of event.changedTouches)
+    {
+        touches.push({pageY: eventTouch.pageY, identifier: eventTouch.identifier});
+    }
+}
+
+function onTouchMove(event)
+{
+    for (const eventTouch of event.changedTouches)
+    {
+        const touch = getTouch(eventTouch);
+        if (touch == null)
+        {
+            continue;
+        }
+
+        const deltaY = eventTouch.pageY - touch.pageY;
+        scrollTarget -= deltaY;
+        console.log('dy ' + deltaY);
+        touch.pageY = eventTouch.pageY;
+    }
+}
+
+function onTouchEnd(event)
+{
+    for (const eventTouch of event.changedTouches)
+    {
+        removeTouch(eventTouch);
+    }
+}
+
+window.onload = () => 
+{
+    const scroller = $('#scroller');
+    scroller.on('touchstart', onTouchStart);
+    scroller.on('touchend', onTouchEnd);
+    scroller.on('touchmove', onTouchMove);
+
+    tLast = window.performance.now();
+    requestAnimationFrame(animate);
+}
+
+</script>
+</head>
+<body>
+    <div style="background-color: red;width:500px;height:100px">hello</div>
+    <div id="scroller" style="background-color: green;width:400px;height:400px;overflow:hidden">
+        things
+        <ul>
+            <li>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</li>
+            <li>b</li>
+            <li>c</li>
+            <li>d</li>
+            <li>e</li>
+            <li>f</li>
+            <li>g</li>
+            <li>h</li>
+            <li>i</li>
+            <li>j</li>
+            <li>k</li>
+            <li>l</li>
+            <li>m</li>
+            <li>n</li>
+            <li>o</li>
+            <li>p</li>
+            <li>q</li>
+            <li>r</li>
+            <li>s</li>
+            <li>t</li>
+            <li>u</li>
+            <li>v</li>
+            <li>w</li>
+            <li>x</li>
+            <li>y</li>
+            <li>z</li>
+            <li>a</li>
+            <li>b</li>
+            <li>c</li>
+            <li>d</li>
+            <li>e</li>
+            <li>f</li>
+            <li>g</li>
+            <li>h</li>
+            <li>i</li>
+            <li>j</li>
+            <li>k</li>
+            <li>l</li>
+            <li>m</li>
+            <li>n</li>
+            <li>o</li>
+            <li>p</li>
+            <li>q</li>
+            <li>r</li>
+            <li>s</li>
+            <li>t</li>
+            <li>u</li>
+            <li>v</li>
+            <li>w</li>
+            <li>x</li>
+            <li>y</li>
+            <li>z</li>
+        </ul>
+    </div>
+    <div style="background-color:blue;width:500px;height:100px">bye</div>
+</body>
+</html>

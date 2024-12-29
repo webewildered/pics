@@ -10,5 +10,11 @@
             "name": "Admin",
             "url": "http://localhost/admin.html?ldjm74lvu8bmibvbtn4asa"
         },
+        {
+            "type": "chrome",
+            "request": "launch",
+            "name": "Test",
+            "url": "http://localhost/test.html"
+        },
     ]
 }
