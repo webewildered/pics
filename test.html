@@ -7,12 +7,24 @@
 // Current scroll distance from top. scrollTop() is rounded to integer, this is not.
 var scroll = 0;
 
-// Desktop inputs (mouse wheel, keys) adjust the scroll target, scroll animates towards the
+// True if currently scrolling in touch mode, false in PC mode
+var scrollTouch = false;
+
+// PC inputs (mouse wheel, keys) adjust the scroll target, scroll animates towards the
 // target with gain (decay per second)
 var scrollTarget = 0;
 const scrollGain = 0.99999999;
 
-var scrollTouch = false;
+// Touch scroll tracks the finger exactly when pressed, then moves with momentum when released
+var touches = [];
+var scrollVelocity = 0;
+var scrollDamping = 0.3;
+
+function setScroll(newScroll)
+{
+    scroll = newScroll;
+    $('#scroller').scrollTop(Math.round(newScroll));
+}
 
 let tLast;
 function animate(t)
@@ -25,15 +37,26 @@ function animate(t)
     scrollTarget = Math.max(scrollTarget, 0);
     scrollTarget = Math.min(scrollTarget, scroller.prop('scrollHeight') - scroller.height());
 
-    // Touch scrolling and desktop scrolling animate differently
     if (scrollTouch)
     {
-        console.log('target ' + scrollTarget);
-        scroller.scrollTop(scrollTarget);
+        // Touch mode
+        if (touches.length > 0)
+        {
+            // Touching: track the finger
+            scrollVelocity = (scrollTarget - scroll) / dt;
+            setScroll(scrollTarget);
+        }
+        else
+        {
+            // Released: momentum
+            const damping = 0.1; // decay in velocity per second
+            scrollVelocity *= Math.min(1, Math.pow(damping, dt));
+            setScroll(scroll + scrollVelocity * dt);
+        }
     }
     else
     {
-        // Animate to the target
+        // PC mode: animate to the target
         const diff = scrollTarget - scroll;
         var newScroll;
         const limit = 1;
@@ -43,12 +66,11 @@ function animate(t)
         }
         else
         {
-            const gain = 0.99999999;
-            const factor = Math.pow(1 - gain, dt);
+            const decay = 0.0000001; // decay in distance from target per second
+            const factor = Math.pow(decay, dt);
             newScroll = scrollTarget - diff * factor;
         }
-        scroller.scrollTop(Math.round(newScroll));
-        scroll = newScroll;
+        setScroll(newScroll);
     }
 
     // Animate forever
@@ -65,7 +87,6 @@ onwheel = (event) =>
     // TODO maybe need to handle other modes
 }
 
-var touches = [];
 function getTouchIndex(eventTouch)
 {
     for (let i = 0; i < touches.length; i++)
@@ -100,6 +121,10 @@ function removeTouch(eventTouch)
 function onTouchStart(event)
 {
     scrollTouch = true;
+    if (touches.length == 0)
+    {
+        scrollTarget = scroll;
+    }
     for (const eventTouch of event.changedTouches)
     {
         touches.push({pageY: eventTouch.pageY, identifier: eventTouch.identifier});
@@ -118,7 +143,6 @@ function onTouchMove(event)
 
         const deltaY = eventTouch.pageY - touch.pageY;
         scrollTarget -= deltaY;
-        console.log('dy ' + deltaY);
         touch.pageY = eventTouch.pageY;
     }
 }
