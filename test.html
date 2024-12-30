@@ -23,7 +23,19 @@ var scrollDamping = 0.3;
 function setScroll(newScroll)
 {
     scroll = newScroll;
-    $('#scroller').scrollTop(Math.round(newScroll));
+    //$('#scrollContent').css({position: 'relative', top: Math.round(-newScroll)});
+    $('#scrollContent').css({position: 'relative', top: -newScroll});
+}
+
+// decay x by a factor of rate every second. Snap to 0 when abs(x) < limit.
+function decay(x, dt, rate, limit = 0)
+{
+    if (Math.abs(x) < limit)
+    {
+        return 0;
+    }
+    const factor = Math.pow(rate, dt);
+    return x * factor;
 }
 
 let tLast;
@@ -31,45 +43,62 @@ function animate(t)
 {
     const dt = (t - tLast) * 1e-3;
     tLast = t;
-    
-    // Clamp the scroll target
-    const scroller = $('#scroller');
-    scrollTarget = Math.max(scrollTarget, 0);
-    scrollTarget = Math.min(scrollTarget, scroller.prop('scrollHeight') - scroller.height());
+
+    // Calculate the scroll range
+    const minScroll = 0;
+    const contentHeight = $('#scrollContent').prop('scrollHeight');
+    const panelHeight = $('#scrollPanel').height();
+    const maxScroll = Math.max(contentHeight - panelHeight, 0);
 
     if (scrollTouch)
     {
+        // Calculate distance past the scroll boundary
+        calcOverScroll = (x) => Math.min(0, x - minScroll) + Math.max(0, x - maxScroll);
+
         // Touch mode
         if (touches.length > 0)
         {
-            // Touching: track the finger
-            scrollVelocity = (scrollTarget - scroll) / dt;
-            setScroll(scrollTarget);
+            // Finger down:
+            // Within bounds, track the finger movement directly.
+            // Out of bounds, lag behind, simulating a force pulling back towards the bounds.
+            var overScroll = calcOverScroll(scrollTarget);
+            var newScroll = scrollTarget;
+            if (overScroll != 0)
+            {
+                newScroll = newScroll - overScroll + Math.pow(Math.abs(overScroll), 0.8) * Math.sign(overScroll);
+            }
+            scrollVelocity = (newScroll - scroll) / dt;
+            setScroll(newScroll);
         }
         else
         {
-            // Released: momentum
-            const damping = 0.1; // decay in velocity per second
-            scrollVelocity *= Math.min(1, Math.pow(damping, dt));
+            // Finger released
+            var overScroll = calcOverScroll(scroll);
+            if (overScroll == 0)
+            {
+                // Within bounds, damp velocity
+                scrollVelocity = decay(scrollVelocity, dt, 0.1);
+            }
+            else
+            {
+                // Out of bounds, pull toward the bounds with a critically damped spring
+                const w = 5; // angular frequency
+                const v = scrollVelocity;
+                const x = overScroll;
+                scrollVelocity = (v - dt * w * w * x) / (1 + 2 * dt * w + dt * dt * w * w); // implicit integration
+            }
+
             setScroll(scroll + scrollVelocity * dt);
         }
     }
     else
     {
-        // PC mode: animate to the target
-        const diff = scrollTarget - scroll;
-        var newScroll;
-        const limit = 1;
-        if (Math.abs(diff) < limit)
-        {
-            newScroll = scrollTarget;
-        }
-        else
-        {
-            const decay = 0.0000001; // decay in distance from target per second
-            const factor = Math.pow(decay, dt);
-            newScroll = scrollTarget - diff * factor;
-        }
+        // PC mode: Clamp the scroll target
+        scrollTarget = Math.max(scrollTarget, minScroll);
+        scrollTarget = Math.min(scrollTarget, maxScroll);
+
+        // Animate to the target
+        var newScroll = scrollTarget - decay(scrollTarget - scroll, dt, 0.0000001, 1);
         setScroll(newScroll);
     }
 
@@ -157,7 +186,7 @@ function onTouchEnd(event)
 
 window.onload = () => 
 {
-    const scroller = $('#scroller');
+    const scroller = $('#scrollPanel');
     scroller.on('touchstart', onTouchStart);
     scroller.on('touchend', onTouchEnd);
     scroller.on('touchmove', onTouchMove);
@@ -170,62 +199,64 @@ window.onload = () =>
 </head>
 <body>
     <div style="background-color: red;width:500px;height:100px">hello</div>
-    <div id="scroller" style="background-color: green;width:400px;height:400px;overflow:hidden">
-        things
-        <ul>
-            <li>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</li>
-            <li>b</li>
-            <li>c</li>
-            <li>d</li>
-            <li>e</li>
-            <li>f</li>
-            <li>g</li>
-            <li>h</li>
-            <li>i</li>
-            <li>j</li>
-            <li>k</li>
-            <li>l</li>
-            <li>m</li>
-            <li>n</li>
-            <li>o</li>
-            <li>p</li>
-            <li>q</li>
-            <li>r</li>
-            <li>s</li>
-            <li>t</li>
-            <li>u</li>
-            <li>v</li>
-            <li>w</li>
-            <li>x</li>
-            <li>y</li>
-            <li>z</li>
-            <li>a</li>
-            <li>b</li>
-            <li>c</li>
-            <li>d</li>
-            <li>e</li>
-            <li>f</li>
-            <li>g</li>
-            <li>h</li>
-            <li>i</li>
-            <li>j</li>
-            <li>k</li>
-            <li>l</li>
-            <li>m</li>
-            <li>n</li>
-            <li>o</li>
-            <li>p</li>
-            <li>q</li>
-            <li>r</li>
-            <li>s</li>
-            <li>t</li>
-            <li>u</li>
-            <li>v</li>
-            <li>w</li>
-            <li>x</li>
-            <li>y</li>
-            <li>z</li>
-        </ul>
+    <div id="scrollPanel" style="background-color: green;width:400px;height:400px;overflow:hidden">
+        <div id="scrollContent">
+            things
+            <ul>
+                <li>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</li>
+                <li>b</li>
+                <li>c</li>
+                <li>d</li>
+                <li>e</li>
+                <li>f</li>
+                <li>g</li>
+                <li>h</li>
+                <li>i</li>
+                <li>j</li>
+                <li>k</li>
+                <li>l</li>
+                <li>m</li>
+                <li>n</li>
+                <li>o</li>
+                <li>p</li>
+                <li>q</li>
+                <li>r</li>
+                <li>s</li>
+                <li>t</li>
+                <li>u</li>
+                <li>v</li>
+                <li>w</li>
+                <li>x</li>
+                <li>y</li>
+                <li>z</li>
+                <li>a</li>
+                <li>b</li>
+                <li>c</li>
+                <li>d</li>
+                <li>e</li>
+                <li>f</li>
+                <li>g</li>
+                <li>h</li>
+                <li>i</li>
+                <li>j</li>
+                <li>k</li>
+                <li>l</li>
+                <li>m</li>
+                <li>n</li>
+                <li>o</li>
+                <li>p</li>
+                <li>q</li>
+                <li>r</li>
+                <li>s</li>
+                <li>t</li>
+                <li>u</li>
+                <li>v</li>
+                <li>w</li>
+                <li>x</li>
+                <li>y</li>
+                <li>z</li>
+            </ul>
+        </div>
     </div>
     <div style="background-color:blue;width:500px;height:100px">bye</div>
 </body>
