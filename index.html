@@ -22,6 +22,20 @@
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 <script>
 
+//
+// Scrolling
+//
+
+
+var scrollTouch = false; // True if currently scrolling in touch mode, false in PC mode
+var scroll = 0; // Current scroll distance from top
+var scrollTarget = 0; // In PC mode, the target scroll to animate towards
+var scrollVelocity = 0; // In touch mode, the current scrolling velocity
+
+//
+// Gallery
+//
+
 const thumbRes = 200; // Native size of thumbnail images in px
 const thumbMargin = 2; // Horizontal space between thumbnails in px
 var thumbPitch = 0; // Number of thumbnails per row
@@ -118,6 +132,24 @@ async function upload(event)
     console.log('Uploaded ' + count + ' images');
 }
 
+function layout()
+{
+    const newThumbPitch = Math.ceil((document.body.clientWidth + thumbMargin) / (thumbRes + thumbMargin));
+    const newThumbSize = Math.ceil((document.body.clientWidth + thumbMargin) / newThumbPitch - thumbMargin);
+    const newThumbSizeEnd = document.body.clientWidth - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
+    if (newThumbPitch !== thumbPitch || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
+    {
+        thumbPitch = newThumbPitch;
+        thumbSize = newThumbSize;
+        thumbSizeEnd = newThumbSizeEnd;
+        console.log('width ' + document.body.clientWidth + ' pitch ' + thumbPitch + ' size ' + thumbSize);
+        
+        styleImage($('#thumbs').children(), false);
+        styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
+    }
+}
+window.onresize = layout;
+
 window.onload = () =>
 {
     $('#uploadButton').on('click', upload);
@@ -138,49 +170,218 @@ window.onload = () =>
             $('<span>error: ' + error + '</span>').appendTo(thumbs);
         });
     layout();
+
+    // Handle thumbnails touch inputs
+    const thumbsContainer = $('#thumbsContainer');
+    thumbsContainer.on('touchstart', onTouchStart);
+    thumbsContainer.on('touchend', onTouchEnd);
+    thumbsContainer.on('touchmove', onTouchMove);
+
+    // Animate
+    tLast = window.performance.now();
+    requestAnimationFrame(animate);
 }
 
-function layout()
+//
+// Touch handlers
+//
+
+function getTouchIndex(eventTouch)
 {
-    const newThumbPitch = Math.ceil((document.body.clientWidth + thumbMargin) / (thumbRes + thumbMargin));
-    const newThumbSize = Math.ceil((document.body.clientWidth + thumbMargin) / newThumbPitch - thumbMargin);
-    const newThumbSizeEnd = document.body.clientWidth - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
-    if (newThumbPitch !== thumbPitch || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
+    for (let i = 0; i < touches.length; i++)
     {
-        thumbPitch = newThumbPitch;
-        thumbSize = newThumbSize;
-        thumbSizeEnd = newThumbSizeEnd;
-        console.log('width ' + document.body.clientWidth + ' pitch ' + thumbPitch + ' size ' + thumbSize);
-        
-        styleImage($('#thumbs').children(), false);
-        styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
+        if (touches[i].identifier === eventTouch.identifier)
+        {
+            return i;
+        }
+    }
+    return -1;
+
+}
+
+function getTouch(eventTouch)
+{
+    let touchIndex = getTouchIndex(eventTouch);
+    return (touchIndex >= 0) ? touches[touchIndex] : null;
+}
+
+function removeTouch(eventTouch)
+{
+    let touchIndex = getTouchIndex(eventTouch);
+    if (touchIndex >= 0)
+    {
+        touches.splice(touchIndex, 1);
     }
 }
-window.onresize = layout;
+ 
+var touches = [];
+function onTouchStart(event)
+{
+    scrollTouch = true;
+    if (touches.length == 0)
+    {
+        scrollTarget = scroll;
+    }
+    for (const eventTouch of event.changedTouches)
+    {
+        touches.push({pageY: eventTouch.pageY, identifier: eventTouch.identifier});
+    }
+}
+
+function onTouchMove(event)
+{
+    for (const eventTouch of event.changedTouches)
+    {
+        const touch = getTouch(eventTouch);
+        if (touch == null)
+        {
+            continue;
+        }
+
+        const deltaY = eventTouch.pageY - touch.pageY;
+        scrollTarget -= deltaY;
+        touch.pageY = eventTouch.pageY;
+    }
+}
+
+function onTouchEnd(event)
+{
+    for (const eventTouch of event.changedTouches)
+    {
+        removeTouch(eventTouch);
+    }
+}
+
+//
+// PC input handlers
+//
 
 onwheel = (event) =>
 {
-    switch (event.deltaMode)
+    scrollTouch = false;
+    if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL)
     {
-        case WheelEvent.DOM_DELTA_PIXEL: window.scrollBy(0, event.deltaY); break;
-        case WheelEvent.DOM_DELTA_LINE: window.scrollByLines(0, event.deltaY); break;
-        case WheelEvent.DOM_DELTA_PAGE: window.scrollByPages(0, event.deltaY); break;
+        scrollTarget += event.deltaY;
     }
+    // TODO maybe need to handle other modes:
+    // switch (event.deltaMode)
+    // {
+    //     case WheelEvent.DOM_DELTA_PIXEL: window.scrollBy(0, event.deltaY); break;
+    //     case WheelEvent.DOM_DELTA_LINE: window.scrollByLines(0, event.deltaY); break;
+    //     case WheelEvent.DOM_DELTA_PAGE: window.scrollByPages(0, event.deltaY); break;
+    // }
+}
+
+//
+// Main loop
+//
+
+let tLast;
+function animate(t)
+{
+    const thumbs = $('#thumbs');
+    const thumbsContainer = $('#thumbsContainer');
+
+    function setScroll(newScroll)
+    {
+        scroll = newScroll;
+        thumbs.css({position: 'relative', top: -newScroll});
+    }
+
+    // decay x by a factor of rate every second. Snap to 0 when abs(x) < limit.
+    function decay(x, dt, rate, limit = 0)
+    {
+        if (Math.abs(x) < limit)
+        {
+            return 0;
+        }
+        const factor = Math.pow(rate, dt);
+        return x * factor;
+    }
+
+    const dt = (t - tLast) * 1e-3;
+    tLast = t;
+
+    // Calculate the scroll range
+    const minScroll = 0;
+    const contentHeight = thumbs.prop('scrollHeight');
+    const panelHeight = thumbsContainer.height();
+    const maxScroll = Math.max(contentHeight - panelHeight, 0);
+
+    if (scrollTouch)
+    {
+        // Calculate distance past the scroll boundary
+        calcOverScroll = (x) => Math.min(0, x - minScroll) + Math.max(0, x - maxScroll);
+
+        // Touch mode
+        if (touches.length > 0)
+        {
+            // Finger down:
+            // Within bounds, track the finger movement directly.
+            // Out of bounds, lag behind, simulating a force pulling back towards the bounds.
+            var overScroll = calcOverScroll(scrollTarget);
+            var newScroll = scrollTarget;
+            if (overScroll != 0)
+            {
+                newScroll = newScroll - overScroll + Math.pow(Math.abs(overScroll), 0.8) * Math.sign(overScroll);
+            }
+            scrollVelocity = (newScroll - scroll) / dt;
+            setScroll(newScroll);
+        }
+        else
+        {
+            // Finger released
+            var overScroll = calcOverScroll(scroll);
+            if (overScroll == 0)
+            {
+                // Within bounds, damp velocity
+                scrollVelocity = decay(scrollVelocity, dt, 0.1);
+            }
+            else
+            {
+                // Out of bounds, pull toward the bounds with a critically damped spring
+                const w = 5; // angular frequency
+                const v = scrollVelocity;
+                const x = overScroll;
+                scrollVelocity = (v - dt * w * w * x) / (1 + 2 * dt * w + dt * dt * w * w); // implicit integration
+            }
+
+            setScroll(scroll + scrollVelocity * dt);
+        }
+    }
+    else
+    {
+        // PC mode: Clamp the scroll target
+        scrollTarget = Math.max(scrollTarget, minScroll);
+        scrollTarget = Math.min(scrollTarget, maxScroll);
+
+        // Animate to the target
+        var newScroll = scrollTarget - decay(scrollTarget - scroll, dt, 0.0000001, 1);
+        setScroll(newScroll);
+    }
+
+    // Animate forever
+    requestAnimationFrame(animate);
 }
 
 </script>
 </head>
 <body style="background-color:black;margin:0;overflow:hidden;">
-    <!-- top bar -->
-    <div class="header" style="background-color:#333;padding:10px">
-        <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
-            <input type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic"/>
-            <button id="uploadButton">+</button>
-        </form>
-    </div>
+    <!-- wrapper, flex-flow enables thumbsContainer to fill all space not used by the top bar -->
+    <div style="display: flex; flex-flow: column; height: 100%">
+        <!-- top bar -->
+        <div style="background-color:#333;padding:10px;flex: 0 1 auto;">
+            <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
+                <input type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic"/>
+                <button id="uploadButton">+</button>
+            </form>
+        </div>
 
-    <!-- thumbnail grid -->
-    <div id="thumbs">
+        <!-- thumbnail grid --> 
+        <div id="thumbsContainer" style="flex: 1 1 auto;overflow:hidden">
+            <div id="thumbs">
+            </div>
+        </div>
     </div>
 
     <!-- background for full size photos -->
