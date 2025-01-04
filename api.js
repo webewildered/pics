@@ -74,11 +74,8 @@ function makeKey ()
     return key;
 }
 
-//
-// Create a photo gallery
-//
-
-app.post('/api/createGallery', function (req, res)
+// Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath)
+function adminOp(req, res, op)
 {
     const fail = (error) =>
     {
@@ -115,22 +112,7 @@ app.post('/api/createGallery', function (req, res)
                     adminJson = JSON.parse(data);
                     if (adminJson.type === 'admin')
                     {
-                        // Create the gallery
-                        const galleryKey = makeKey();
-                        let gallery = {};
-                        gallery.name = requestJson.name;
-                        gallery.images = [];
-                        fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery), () =>
-                        {
-                            // Add the gallery to the list
-                            adminJson.galleries.push(galleryKey);
-                            fs.writeFile(adminPath, JSON.stringify(adminJson), () =>
-                            {
-                                // Return the gallery key to the client
-                                res.writeHead(200, {'Content-Type': 'text/plain'});
-                                res.end(galleryKey);
-                            });
-                        });
+                        op(requestJson, res, adminJson, adminPath);
                     }
                 }
                 catch (error)
@@ -141,6 +123,103 @@ app.post('/api/createGallery', function (req, res)
             });
         });
     }
+}
+
+//
+// Create a photo gallery
+//
+
+app.post('/api/createGallery', function (req, res)
+{
+    adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
+    {
+        const fail = (error) =>
+        {
+            res.writeHead(500, {'Content-Type': 'text/plain'});
+            res.end(error);
+        }
+
+        // Create the gallery
+        const galleryKey = makeKey();
+        let gallery = {};
+        gallery.name = requestJson.name;
+        gallery.images = [];
+        fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery), () =>
+        {
+            // Add the gallery to the list
+            adminJson.galleries.push(galleryKey);
+            fs.writeFile(adminPath, JSON.stringify(adminJson), (err ) =>
+            {
+                if (err)
+                {
+                    fail('fs.writeFile() error: ' + err);
+                    return;
+                }
+
+                // Return the gallery key to the client
+                res.writeHead(200, {'Content-Type': 'text/plain'});
+                res.end(galleryKey);
+            });
+        });
+    });
+});
+
+//
+// Delete a photo gallery
+//
+
+app.post('/api/deleteGallery', function (req, res)
+{
+    adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
+    {
+        const fail = (error) =>
+        {
+            res.writeHead(500, {'Content-Type': 'text/plain'});
+            res.end(error);
+        }
+
+        // Delete the gallery
+        const galleryKey = requestJson.galleryKey;
+        const galleryPath = 'galleries/' + galleryKey + '.json';
+        fs.readFile(galleryPath, (err, data) =>
+        {
+            if (err)
+            {
+                fail('fs.readFile() error: ' + err);
+                return;
+            }
+
+            fs.unlink(galleryPath, (err) =>
+            {
+                if (err)
+                {
+                    fail('fs.unlink() error: ' + err);
+                    return;
+                }
+                
+                // Remove the gallery from the list
+                const index = adminJson.galleries.indexOf(galleryKey);
+                if (index < 0)
+                {
+                    fail('gallery was not in the admin list');
+                    return;
+                }
+                adminJson.galleries.splice(index, 1);
+                fs.writeFile(adminPath, JSON.stringify(adminJson), (err) =>
+                {
+                    if (err)
+                    {
+                        fail('fs.writeFile() error: ' + err);
+                        return;
+                    }
+
+                    // Return the gallery key to the client
+                    res.writeHead(200, {'Content-Type': 'text/plain'});
+                    res.end(galleryKey);
+                });
+            });
+        });
+    });
 });
 
 //
@@ -221,13 +300,15 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         return;
     }
     
-    // Create the thumbnail
+    // Extract metadata and create the thumbnail
     const thumbSize = 200;
     const thumbFileName = makeKey() + '.jpg';
-    await sharp('images/' + fileName)
+    const image = sharp('images/' + fileName);
+    await image
     .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.outside })
     .resize({ width: thumbSize, height: thumbSize, fit: sharp.fit.cover })
     .toFile('thumbs/' + thumbFileName);
+    const metadata = await image.metadata();
 
     // Update the gallery
     const galleryEntry = 
@@ -235,7 +316,9 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         title: file.originalname,
         file: fileName,
         thumb: thumbFileName,
-        original: originalFileName
+        original: originalFileName,
+        width: metadata.width,
+        height: metadata.height,
     };
     gallery.images.push(galleryEntry);
 

@@ -9,13 +9,30 @@ function getAdminKey()
     return window.location.search.substring(1);
 }
 
-function addGallery(galleryKey)
+function addLog(str)
+{
+    logDiv = $('#log');
+    $('<span>').text(str).appendTo(logDiv);
+    $('<br>').appendTo(logDiv);
+}
+
+async function addGallery(galleryKey)
 {
     const galleryList = $('#galleryList');
     const li = $('<li>').appendTo(galleryList);
-    $('<a>').attr('href', 'index.html?' + galleryKey).text(galleryKey).appendTo(li);
+    const link = $('<a>').attr('href', 'index.html?' + galleryKey).text(galleryKey).appendTo(li);
     $('<span>').text(' ').appendTo(li);
-    $('<button>').text('delete').click(() => deleteGallery(galleryKey)).appendTo(li);
+    $('<button>').text('delete').click(() => deleteGallery(li, galleryKey)).appendTo(li);
+    fetch('galleries/' + galleryKey + '.json')
+        .then((response) => response.json())
+        .then((gallery) =>
+        {
+            link.text(gallery.name + ' (' + galleryKey + ')');
+        })
+        .catch((error) =>
+        {
+            link.text(galleryKey + ' (missing!)');
+        });
 }
 
 // On page load
@@ -37,15 +54,14 @@ window.onload = () =>
         })
         .catch((error) =>
         {
-            $('<span>error: ' + error + '</span>').appendTo($('body'));
+            addLog('load error: ' + error);
         });
 }
 
-// On create gallery button click
-function createGallery()
+function adminApi(api, request, onSuccess)
 {
     const xhr = new XMLHttpRequest();
-	const url = "api/createGallery";
+	const url = 'api/' + api;
 	xhr.open("POST", url, true);
 	xhr.setRequestHeader("Content-Type", "application/json");
 	xhr.onreadystatechange = function ()
@@ -54,26 +70,30 @@ function createGallery()
 		{
 			if (xhr.status === 200)
 			{
-                addGallery(xhr.responseText);
+                onSuccess(xhr.responseText);
 			}
 			else
 			{
-                console.log('Create failed: ' + xhr.status + ' / ' + xhr.responseText);
+                addLog(api + ' failed (' + xhr.status + '): ' + xhr.responseText);
 			}
 		}
 	};
 	
-    const request = {};
     request.adminKey = getAdminKey();
-    request.name = $('#galleryName').val();
 	var stringData = JSON.stringify(request);
 	xhr.send(stringData);
 }
 
 // On create gallery button click
-function deleteGallery(gallery)
+function createGallery()
 {
-    console.log('delete it ' + gallery);
+    adminApi('createGallery', { name: $('#galleryName').val() }, (response) => addGallery(response))
+}
+
+// On delete gallery button click
+function deleteGallery(li, galleryKey)
+{
+    adminApi('deleteGallery', { galleryKey: galleryKey }, (response) => { li.remove(); });
 }
 
 </script>
@@ -86,5 +106,6 @@ function deleteGallery(gallery)
         <ul id="galleryList">
         </ul>
     </div>
+    <div id="log"></span>
 </body>
 </html>
