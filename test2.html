@@ -1,0 +1,129 @@
+<html>
+<head>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script>
+        let tLast;
+        
+        window.onload = () =>
+        {
+            tLast = window.performance.now();
+            requestAnimationFrame(animate);
+        }
+
+        function animate(t)
+        {
+            const dt = (t - tLast) * 1e-3;
+            tLast = t;
+
+            for (var i = 0; i < fades.length; i++)
+            {
+                const fade = fades[i];
+                opacity = Number(fade.element.css('opacity'));
+                if (fade.fadeIn)
+                {
+                    fade.element.show();
+                    opacity += fade.rate * dt;
+                    if (opacity >= 1)
+                    {
+                        opacity = 1;
+                        fades.splice(i--, 1);
+                    }
+                }
+                else
+                {
+                    opacity -= fade.rate * dt;
+                    if (opacity <= 0)
+                    {
+                        opacity = 0;
+                        fade.element.hide();
+                        fades.splice(i--, 1);
+                    }
+                }
+                opacity = fade.element.css('opacity', opacity);
+            }
+            
+            requestAnimationFrame(animate);
+        }
+
+        let fades = [];
+        function fade(elements, fadeIn, duration = 0)
+        {
+            elements.each(function()
+            {
+                const element = $(this);
+                for (var i = 0; i < fades.length; i++)
+                {
+                    const fade = fades[i];
+                    if (fade.element.is(element))
+                    {
+                        if (duration == 0)
+                        {
+                            // Fade will be executed immediately, remove the animation
+                            fades.splice(i, 1);
+                            break;
+                        }
+                        
+                        // Replace the animation
+                        var rate = 1 / duration;
+                        fade.rate = (fade.fadeIn == fadeIn) ? Math.max(rate, fade.rate) : rate;
+                        fade.fadeIn = fadeIn;
+                        return;
+                    }
+                }
+
+                if (duration == 0)
+                {
+                    if (fadeIn)
+                    {
+                        element.css({opacity: 1}).show();
+                    }
+                    else
+                    {
+                        element.css({opacity: 0}).hide();
+                    }
+                    return;
+                }
+
+                var rate = 1 / duration;
+                fades.push({
+                    element: element,
+                    fadeIn: fadeIn,
+                    rate: rate
+                });
+            });
+        }
+
+        function fadeIn()
+        {
+            fade($('.fader'), true, 1);
+        }
+        
+        function fadeOut()
+        {
+            fade($('.fader'), false, 1);
+        }
+        function fadeIn2()
+        {
+            fade($('#fader2'), true, 1);
+        }
+        
+        function fadeOut2()
+        {
+            fade($('#fader2'), false, 1);
+        }
+
+    </script>
+    <title>test page</title>
+    <style>
+    </style>
+</head>
+<body>
+    <div id="fader1" class="fader" style="opacity:0;font-size:30;" hidden>fader</div><br />
+    <div id="fader2" class="fader" style="opacity:0;font-size:30;" hidden>fader2</div><br />
+    <br /><br />
+    <button onClick="fadeIn()">fade in</button>
+    <button onClick="fadeOut()">fade out</button>
+    <button onClick="fadeIn2()">fade in 2</button>
+    <button onClick="fadeOut2()">fade out 2</button>
+</body>
+</html>

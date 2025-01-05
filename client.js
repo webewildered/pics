@@ -74,7 +74,7 @@ function addImage(galleryEntry)
 let image;
 function clickThumb(galleryEntry)
 {
-    $('#imageView').css({'display': 'initial'});
+    fade($('#imageView'), true, 0.1);
     
     // Calculate the initial zoom
     naturalWidth = galleryEntry.width;
@@ -98,20 +98,23 @@ function clickThumb(galleryEntry)
     image.on('click', (event) =>
         {
             enableImageControls = !enableImageControls
-            $('.imageBar').fadeTo(100, enableImageControls ? 1 : 0);
+            fade($('.imageBar'), enableImageControls, 0.1);
         });
     
     focus = imageMode;
     enableImageControls = true;
-    $('#topBar').css({opacity: 1});
-    $('#bottomBar').css({opacity: 1});
+    fade($('.imageBar'), enableImageControls);
 }
 
 function clickBackButton()
 {
-    image.remove();
-    $('#imageView').css({'display': 'none'});
-    focus = galleryMode;
+    if (image)
+    {
+        image.remove();
+        image = null;
+        fade($('#imageView'), false, 0.1);
+        focus = galleryMode;
+    }
 }
 
 async function upload(event)
@@ -161,8 +164,6 @@ window.onresize = layout;
 
 window.onload = () =>
 {
-    $('#uploadButton').on('click', upload);
-
     // Load the gallery
     const thumbs = $('#thumbs');
     fetch('galleries/' + getGalleryKey() + '.json')
@@ -181,6 +182,7 @@ window.onload = () =>
     layout();
 
     // Handle gui events
+    $('#uploadButton').on('click', upload);
     $('#backButton').on('click', clickBackButton);
 
     // Handle thumbnails touch inputs
@@ -301,6 +303,85 @@ onwheel = (event) =>
 // Main loop
 //
 
+// Utility for fading elements in and out
+let fades = [];
+function fade(elements, fadeIn, duration = 0)
+{
+    elements.each(function()
+    {
+        const element = $(this);
+        for (var i = 0; i < fades.length; i++)
+        {
+            const fade = fades[i];
+            if (fade.element.is(element))
+            {
+                if (duration == 0)
+                {
+                    // Fade will be executed immediately, remove the animation
+                    fades.splice(i, 1);
+                    break;
+                }
+                
+                // Replace the animation
+                var rate = 1 / duration;
+                fade.rate = (fade.fadeIn == fadeIn) ? Math.max(rate, fade.rate) : rate;
+                fade.fadeIn = fadeIn;
+                return;
+            }
+        }
+
+        if (duration == 0)
+        {
+            if (fadeIn)
+            {
+                element.css({opacity: 1}).show();
+            }
+            else
+            {
+                element.css({opacity: 0}).hide();
+            }
+            return;
+        }
+
+        var rate = 1 / duration;
+        fades.push({
+            element: element,
+            fadeIn: fadeIn,
+            rate: rate
+        });
+    });
+}
+
+function updateFades(dt)
+{
+    for (var i = 0; i < fades.length; i++)
+    {
+        const fade = fades[i];
+        opacity = Number(fade.element.css('opacity'));
+        if (fade.fadeIn)
+        {
+            fade.element.show();
+            opacity += fade.rate * dt;
+            if (opacity >= 1)
+            {
+                opacity = 1;
+                fades.splice(i--, 1);
+            }
+        }
+        else
+        {
+            opacity -= fade.rate * dt;
+            if (opacity <= 0)
+            {
+                opacity = 0;
+                fade.element.hide();
+                fades.splice(i--, 1);
+            }
+        }
+        opacity = fade.element.css('opacity', opacity);
+    }
+}
+
 // decay x by a factor of rate every second. Snap to 0 when abs(x) < limit.
 function decay(x, dt, rate, limit = 0)
 {
@@ -420,6 +501,7 @@ function animate(t)
     // Update UI elements
     updateScroll(dt);
     updateImage(dt);
+    updateFades(dt);
 
     // Animate forever
     requestAnimationFrame(animate);
