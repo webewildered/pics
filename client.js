@@ -25,6 +25,7 @@ var zoomTarget = 1;
 var zoomMin = 1;
 var naturalWidth = 0;
 var naturalHeight = 0;
+var enableImageControls = true; // Whether to show the top and bottom bars over the image
 
 //
 // Gallery
@@ -96,12 +97,21 @@ function clickThumb(galleryEntry)
         .appendTo('#imageView');
     image.on('click', (event) =>
         {
-            image.remove();
-            $('#imageView').css({'display': 'none'});
-            focus = galleryMode;
+            enableImageControls = !enableImageControls
+            $('.imageBar').fadeTo(100, enableImageControls ? 1 : 0);
         });
     
     focus = imageMode;
+    enableImageControls = true;
+    $('#topBar').css({opacity: 1});
+    $('#bottomBar').css({opacity: 1});
+}
+
+function clickBackButton()
+{
+    image.remove();
+    $('#imageView').css({'display': 'none'});
+    focus = galleryMode;
 }
 
 async function upload(event)
@@ -169,6 +179,9 @@ window.onload = () =>
             $('<span>error: ' + error + '</span>').appendTo(thumbs);
         });
     layout();
+
+    // Handle gui events
+    $('#backButton').on('click', clickBackButton);
 
     // Handle thumbnails touch inputs
     const thumbContainer = $('#thumbContainer');

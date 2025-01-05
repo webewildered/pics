@@ -1,11 +1,9 @@
 <html>
 <head> 
-    <link rel="stylesheet" href="style.css">
-<title>Pics</title>
-
-<!-- Script -->
-<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-<script src="client.js"></script>
+    <link rel="stylesheet" href="style.css?version=1">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="client.js?version=1"></script>
+    <title>Pics</title>
 </head>
 <body style="background-color:black;margin:0;overflow:hidden;">
     <!-- Gallery viewer -->
@@ -28,9 +26,15 @@
     <!-- Image viewer -->
     <div id="imageView">
         <!-- top bar -->
-        <div class="imageBar" style="top: 0;">
-            <span id="location">Location</span><br />
-            <span id="time">Time and date</span>
+        <div class="imageBar imageBarTop">
+            <div class="imageBarTopControl">
+                <span class="noSelect" id="backButton">&lt;</a>
+            </div>
+            <div class="imageBarTopInfo">
+                <span id="location">Location</span><br />
+                <span id="time">Time and date</span>
+            </div>
+            <div class="imageBarTopControl"></div>
         </div>
 
         <!-- bottom bar -->
