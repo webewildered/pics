@@ -1,22 +1,7 @@
 <html>
 <head> 
+    <link rel="stylesheet" href="style.css">
 <title>Pics</title>
-
-<!-- Style -->
-<style>
-
-.thumb
-{
-    margin-top:2px;
-    margin-right:2px;
-}
-.thumb-end
-{
-    margin-top:2px;
-    object-fit:cover;
-}
-
-</style>
 
 <!-- Script -->
 <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
@@ -96,13 +81,12 @@ function addImage(galleryEntry)
 let image;
 function clickThumb(galleryEntry)
 {
-    $('#imageView').css({'display': 'flex'});
+    $('#imageView').css({'display': 'initial'});
     
     // Calculate the initial zoom
-    imageContainer = $('#imageContainer');
     naturalWidth = galleryEntry.width;
     naturalHeight = galleryEntry.height;
-    zoomMin = Math.min(1, imageContainer.width() / naturalWidth, imageContainer.height() / naturalHeight);
+    zoomMin = Math.min(1, window.innerWidth / naturalWidth, window.innerHeight / naturalHeight);
     zoom = zoomMin;
     zoomTarget = zoom;
     imageProps = calcImageProperties(image, zoom);
@@ -111,14 +95,13 @@ function clickThumb(galleryEntry)
         .attr('src', 'images/' + galleryEntry.file)
         .css(
         {
-            position: 'absolute',
-            'z-index': 2,
+            'position': 'absolute',
             'width': imageProps.width,
             'height': imageProps.height,
             'left': imageProps.x,
             'top': imageProps.y
         })
-        .appendTo('body');
+        .appendTo('#imageView');
     image.on('click', (event) =>
         {
             image.remove();
@@ -196,10 +179,10 @@ window.onload = () =>
     layout();
 
     // Handle thumbnails touch inputs
-    const thumbsContainer = $('#thumbsContainer');
-    thumbsContainer.on('touchstart', onTouchStart);
-    thumbsContainer.on('touchend', onTouchEnd);
-    thumbsContainer.on('touchmove', onTouchMove);
+    const thumbContainer = $('#thumbContainer');
+    thumbContainer.on('touchstart', onTouchStart);
+    thumbContainer.on('touchend', onTouchEnd);
+    thumbContainer.on('touchmove', onTouchMove);
 
     // Animate
     tLast = window.performance.now();
@@ -327,7 +310,7 @@ function decay(x, dt, rate, limit = 0)
 function updateScroll(dt)
 {
     const thumbs = $('#thumbs');
-    const thumbsContainer = $('#thumbsContainer');
+    const thumbContainer = $('#thumbContainer');
 
     function setScroll(newScroll)
     {
@@ -338,7 +321,7 @@ function updateScroll(dt)
     // Calculate the scroll range
     const minScroll = 0;
     const contentHeight = thumbs.prop('scrollHeight');
-    const panelHeight = thumbsContainer.height();
+    const panelHeight = thumbContainer.height();
     const maxScroll = Math.max(contentHeight - panelHeight, 0);
 
     if (scrollTouch)
@@ -398,11 +381,9 @@ function calcImageProperties(image, zoom)
 {
     var width = naturalWidth * zoom;
     var height = naturalHeight * zoom;
-    const imageContainer = $('#imageContainer');
-    const offset = imageContainer.offset();
     return {
-        x: imageContainer.offset().left + (imageContainer.width() - width) / 2,
-        y: imageContainer.offset().top + (imageContainer.height() - height) / 2,
+        x: (window.innerWidth - width) / 2,
+        y: (window.innerHeight - height) / 2,
         width: width,
         height: height
     };
@@ -443,10 +424,10 @@ function animate(t)
 </head>
 <body style="background-color:black;margin:0;overflow:hidden;">
     <!-- Gallery viewer -->
-    <!-- wrapper, flex-flow enables thumbsContainer to fill all space not used by the top bar -->
-    <div style="position: absolute; left: 0; top: 0; display: flex; flex-flow: column; width:100%; height: 100%">
+    <!-- wrapper, flex-flow enables thumbContainer to fill all space not used by the top bar -->
+    <div id="galleryView">
         <!-- top bar -->
-        <div style="background-color:#333;padding:10px;flex: 0 1 auto;">
+        <div id="galleryBar">
             <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
                 <input type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic"/>
                 <button id="uploadButton">+</button>
@@ -454,26 +435,23 @@ function animate(t)
         </div>
 
         <!-- thumbnail grid --> 
-        <div id="thumbsContainer" style="flex: 1 1 auto;overflow:hidden">
+        <div id="thumbContainer" style="flex: 1 1 auto;overflow:hidden">
             <div id="thumbs">
             </div>
         </div>
     </div>
 
     <!-- Image viewer -->
-    <div id="imageView" style="background-color:black; position: absolute; left: 0; top: 0; flex-flow: column; width:100%; height:100%; z-index:1; display: none">
+    <div id="imageView">
         <!-- top bar -->
-        <div style="padding:10px;flex: 0 1 auto;text-align:center">
-            It's my image!
+        <div class="imageBar" style="top: 0;">
+            <span id="location">Location</span><br />
+            <span id="time">Time and date</span>
         </div>
 
-        <!-- image view --> 
-        <div id="imageContainer" style="flex: 1 1 auto;">
-        </div>
-        
         <!-- bottom bar -->
-        <div style="padding:10px;flex: 0 1 auto;text-align:center">
-            Other stuff down here!
+        <div class="imageBar" style="bottom: 0;">
+            <span style="color: white; font-size: 14pt">Thumbnail bar will go here</span>
         </div>
     </div>
 </body>
