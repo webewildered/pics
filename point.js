@@ -1,3 +1,4 @@
+// 2D point with arithmetic functions that can take another Point or a Number
 export default class Point
 {
     constructor(x = 0, y = x)

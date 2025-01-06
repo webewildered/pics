@@ -1,4 +1,5 @@
 import Point from './point.js';
+import Scroll from './scroll.js';
 
 //
 // GUI mode
@@ -7,15 +8,6 @@ import Point from './point.js';
 const galleryMode = "galleryMode";
 const imageMode = "imageMode";
 var focus = galleryMode;
-
-//
-// Scrolling
-//
-
-var scrollTouch = false; // True if scrolling is in touch mode, false in PC mode
-var scroll = 0; // Current scroll distance from top
-var scrollTarget = 0; // In PC mode, the target scroll to animate towards
-var scrollVelocity = 0; // In touch mode, the current scrolling velocity
 
 //
 // Image viewing
@@ -41,6 +33,7 @@ const thumbMargin = 2; // Horizontal space between thumbnails in px
 var thumbPitch = 0; // Number of thumbnails per row
 var thumbSize = 0; // Displayed thumbnail size
 var thumbSizeEnd = 0; // End thumbnail's width
+var thumbScroll = new Scroll();
 
 function getGalleryKey()
 {
@@ -233,10 +226,11 @@ function removeTouch(eventTouch)
 var touches = [];
 function onTouchStart(event)
 {
-    scrollTouch = true;
+    thumbScroll.animate = false;
+    thumbScroll.touch = true;
     if (touches.length == 0)
     {
-        scrollTarget = scroll;
+        thumbScroll.target = thumbScroll.x;
     }
     for (const eventTouch of event.changedTouches)
     {
@@ -255,7 +249,7 @@ function onTouchMove(event)
         }
 
         const deltaY = eventTouch.pageY - touch.pageY;
-        scrollTarget -= deltaY;
+        thumbScroll.target -= deltaY;
         touch.pageY = eventTouch.pageY;
     }
 }
@@ -266,6 +260,7 @@ function onTouchEnd(event)
     {
         removeTouch(eventTouch);
     }
+    thumbScroll.touch = (touches.length > 0);
 }
 
 //
@@ -316,10 +311,10 @@ onwheel = (event) =>
     switch (focus)
     {
         case galleryMode:
-            scrollTouch = false;
+            thumbScroll.animate = true;
             if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL)
             {
-                scrollTarget += event.deltaY;
+                thumbScroll.target += event.deltaY;
             }
             break;
         case imageMode:
@@ -447,16 +442,10 @@ function decay(x, dt, rate, limit = 0)
     return x * factor;
 }
 
-function updateScroll(dt)
+function updateThumbs(dt)
 {
     const thumbs = $('#thumbs');
     const thumbContainer = $('#thumbContainer');
-
-    function setScroll(newScroll)
-    {
-        scroll = newScroll;
-        thumbs.css({position: 'relative', top: -newScroll});
-    }
 
     // Calculate the scroll range
     const minScroll = 0;
@@ -464,57 +453,9 @@ function updateScroll(dt)
     const panelHeight = thumbContainer.height();
     const maxScroll = Math.max(contentHeight - panelHeight, 0);
 
-    if (scrollTouch)
-    {
-        // Calculate distance past the scroll boundary
-        calcOverScroll = (x) => Math.min(0, x - minScroll) + Math.max(0, x - maxScroll);
-
-        // Touch mode
-        if (touches.length > 0)
-        {
-            // Finger down:
-            // Within bounds, track the finger movement directly.
-            // Out of bounds, lag behind, simulating a force pulling back towards the bounds.
-            let overScroll = calcOverScroll(scrollTarget);
-            let newScroll = scrollTarget;
-            if (overScroll != 0)
-            {
-                newScroll = newScroll - overScroll + Math.pow(Math.abs(overScroll), 0.8) * Math.sign(overScroll);
-            }
-            scrollVelocity = (newScroll - scroll) / dt;
-            setScroll(newScroll);
-        }
-        else
-        {
-            // Finger released
-            let overScroll = calcOverScroll(scroll);
-            if (overScroll == 0)
-            {
-                // Within bounds, damp velocity
-                scrollVelocity = decay(scrollVelocity, dt, 0.1);
-            }
-            else
-            {
-                // Out of bounds, pull toward the bounds with a critically damped spring
-                const w = 5; // angular frequency
-                const v = scrollVelocity;
-                const x = overScroll;
-                scrollVelocity = (v - dt * w * w * x) / (1 + 2 * dt * w + dt * dt * w * w); // implicit integration
-            }
-
-            setScroll(scroll + scrollVelocity * dt);
-        }
-    }
-    else
-    {
-        // PC mode: Clamp the scroll target
-        scrollTarget = Math.max(scrollTarget, minScroll);
-        scrollTarget = Math.min(scrollTarget, maxScroll);
-
-        // Animate to the target
-        let newScroll = scrollTarget - decay(scrollTarget - scroll, dt, 0.0000001, 1);
-        setScroll(newScroll);
-    }
+    // Animate scroll
+    thumbScroll.update(dt, minScroll, maxScroll);
+    thumbs.css({position: 'relative', top: -thumbScroll.x});
 }
 
 function updateImageTransform()
@@ -550,7 +491,7 @@ function animate(t)
     tLast = t;
     
     // Update UI elements
-    updateScroll(dt);
+    updateThumbs(dt);
     updateImage(dt);
     updateFades(dt);
 
