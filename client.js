@@ -97,13 +97,18 @@ function clickThumb(galleryEntry)
         .appendTo('#imageView');
     image.on('click', (event) =>
         {
-            enableImageControls = !enableImageControls
-            fade($('.imageBar'), enableImageControls, 0.1);
+            showImageBar(!enableImageControls, false); // toggle image bar with fade
         });
     
     focus = imageMode;
     enableImageControls = true;
-    fade($('.imageBar'), enableImageControls);
+    showImageBar(true, true); // show image bar immediate
+}
+
+function showImageBar(show, immediate)
+{
+    enableImageControls = show;
+    fade($('.imageBar'), enableImageControls, immediate ? 0 : 0.1);
 }
 
 function clickBackButton()
@@ -286,7 +291,16 @@ onwheel = (event) =>
             {
                 const zoomRate = 1.001;
                 const zoomDelta = Math.pow(zoomRate, -event.deltaY);
+                const oldZoomTarget = zoomTarget;
                 zoomTarget = Math.max(zoomMin, Math.min(4.0, zoomTarget * zoomDelta));
+                if (zoomTarget == zoomMin && oldZoomTarget != zoomMin)
+                {
+                    showImageBar(true, false); // fade image bar in
+                }
+                else if (oldZoomTarget == zoomMin && zoomTarget != zoomMin)
+                {
+                    showImageBar(false, false); // fade image bar out
+                }
             }
     }
 
