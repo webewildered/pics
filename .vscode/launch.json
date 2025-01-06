@@ -9,21 +9,21 @@
             "request": "launch",
             "name": "Admin",
             "url": "http://localhost/admin.html?ldjm74lvu8bmibvbtn4asa",
-            "runtimeArgs": ["--disable-cache"]
+            "runtimeArgs": ["--incognito"]
         },
         {
             "type": "chrome",
             "request": "launch",
             "name": "Gallery",
             "url": "http://localhost/index.html?suqby2r99vg2cuztc8di",
-            "runtimeArgs": ["--disable-cache"]
+            "runtimeArgs": ["--incognito"]
         },
         {
             "type": "chrome",
             "request": "launch",
             "name": "Test",
             "url": "http://localhost/test.html",
-            "runtimeArgs": ["--disable-cache"]
+            "runtimeArgs": ["--incognito"]
         },
     ]
 }

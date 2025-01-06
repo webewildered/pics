@@ -10,7 +10,18 @@ const imageMode = "imageMode";
 var focus = galleryMode;
 
 //
-// Image viewing
+// Thumbnail gallery
+//
+
+const thumbRes = 200; // Native size of thumbnail images in px
+const thumbMargin = 2; // Horizontal space between thumbnails in px
+var thumbPitch = 0; // Number of thumbnails per row
+var thumbSize = 0; // Displayed thumbnail size
+var thumbSizeEnd = 0; // End thumbnail's width
+var thumbScroll = new Scroll(); // Gallery vertical scroll
+
+//
+// Image viewer
 //
 
 var zoom = 1;
@@ -20,20 +31,10 @@ var zoomMin = 1;
 var nativeSize = new Point();
 var enableImageControls = true; // Whether to show the top and bottom bars over the image
 var imagePressed = false; // true if the image has been clicked/touched and not yet released
-var imageDrag = false; // True if the image is being dragged
 var imageMouseOrigin = new Point(); // Location where the image press began
-var imageOffset = new Point(); // Screenspace offset of the image from center
-
-//
-// Gallery
-//
-
-const thumbRes = 200; // Native size of thumbnail images in px
-const thumbMargin = 2; // Horizontal space between thumbnails in px
-var thumbPitch = 0; // Number of thumbnails per row
-var thumbSize = 0; // Displayed thumbnail size
-var thumbSizeEnd = 0; // End thumbnail's width
-var thumbScroll = new Scroll();
+var imageScrollX = new Scroll(); // Image pan
+var imageScrollY = new Scroll();
+var imageScrollRangeExtension = new Point();
 
 function getGalleryKey()
 {
@@ -63,6 +64,8 @@ function addImage(galleryEntry)
 {
     const image = $('<img>')
         .attr('src', 'thumbs/' + galleryEntry.thumb)
+        .attr('draggable', false)
+        .addClass('noSelect')
         .appendTo(thumbs);
     image.on('click', () => clickThumb(galleryEntry));
     const isEnd = ($('#thumbs').children().length % thumbPitch) == 0;
@@ -79,11 +82,13 @@ function clickThumb(galleryEntry)
     zoomMin = Math.min(1, window.innerWidth / nativeSize.x, window.innerHeight / nativeSize.y);
     zoom = zoomMin;
     zoomTarget = zoom;
-    imageOffset = new Point();
+    imageScrollX.reset();
+    imageScrollY.reset();
 
     image = $('<img>')
         .attr('src', 'images/' + galleryEntry.file)
         .attr('draggable', false)
+        .addClass('noSelect')
         .css({ 'position': 'absolute' });
     updateImageTransform();
     image.appendTo('#imageView');
@@ -226,11 +231,9 @@ function removeTouch(eventTouch)
 var touches = [];
 function onTouchStart(event)
 {
-    thumbScroll.animate = false;
-    thumbScroll.touch = true;
     if (touches.length == 0)
     {
-        thumbScroll.target = thumbScroll.x;
+        thumbScroll.grab();
     }
     for (const eventTouch of event.changedTouches)
     {
@@ -277,17 +280,19 @@ onmousemove = (event) =>
 {
     if (imagePressed)
     {
-        if (!imageDrag)
+        if (!imageScrollX.touch)
         {
             const deadZone = 5; // Distance the mouse must move before beginning to drag the image
             if (imageMouseOrigin.distanceSquared(new Point(event.clientX, event.clientY)) > deadZone * deadZone)
             {
-                imageDrag = true;
+                imageScrollX.grab();
+                imageScrollY.grab();
             }
         }
-        if (imageDrag)
+        if (imageScrollX.touch)
         {
-            imageOffset = imageOffset.add(new Point(event.movementX, event.movementY));
+            imageScrollX.target += event.movementX;
+            imageScrollY.target += event.movementY;
         }
         return;
     }
@@ -297,12 +302,13 @@ onmouseup = () =>
 {
     if (imagePressed)
     {
-        if (!imageDrag)
+        if (!imageScrollX.touch)
         {
             showImageBar(!enableImageControls, false); // toggle image bar with fade
         }
         imagePressed = false;
-        imageDrag = false;
+        imageScrollX.release();
+        imageScrollY.release();
     }
 }
 
@@ -335,7 +341,10 @@ onwheel = (event) =>
 
                 // Find the mouse position in image space
                 const imageOffset = image.offset();
-                zoomCenter = new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top).div(zoom).sub(nativeSize.div(2));
+                zoomCenter = new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top)
+                    .div(zoom) // Relative to topleft corner
+                    .max(0).min(nativeSize) // Clamped to image
+                    .sub(nativeSize.div(2)); // Relative to image center
             }
     }
 
@@ -458,10 +467,13 @@ function updateThumbs(dt)
     thumbs.css({position: 'relative', top: -thumbScroll.x});
 }
 
+function clientSize() { return new Point(window.innerWidth, window.innerHeight); }
+function imageSize() { return nativeSize.mul(zoom); }
+
 function updateImageTransform()
 {
-    let scaledSize = nativeSize.mul(zoom);
-    let scaledPosition = new Point(window.innerWidth, window.innerHeight).sub(scaledSize).div(2).add(imageOffset)
+    const scaledSize = imageSize();
+    const scaledPosition = clientSize().sub(scaledSize).div(2).add(new Point(imageScrollX.x, imageScrollY.x))
     image.css(
     {
         'width': scaledSize.x,
@@ -475,10 +487,79 @@ function updateImage(dt)
 {
     if (image)
     {
+        // Animate zoom
         const newZoom = zoomTarget - decay(zoomTarget - zoom, dt, 0.0000001);
-        const zoomShift = zoomCenter.mul(newZoom - zoom);
-        imageOffset = imageOffset.sub(zoomShift);
-        zoom = newZoom;
+
+        let scrollRange, scrollMin, scrollMax;
+        if (zoomTarget == zoomMin)
+        {
+            // Reset scroll range extension and recenter
+            imageScrollRangeExtension = new Point();
+            scrollRange = new Point();
+            scrollMin = new Point();
+            scrollMax = new Point();
+        }
+        else
+        {
+            // Calculate the position change required to maintain the position of the zoomCenter in screen space
+            const zoomShift = zoomCenter.mul(zoom - newZoom);
+
+            // Calculate the scroll range - the minimum necessary to be able to see the whole image by scrolling, plus any extra specified by
+            // imageScrollRangeExtension (positive values extend max, negative values extend min)
+            function calcScrollRange()
+            {
+                scrollRange = imageSize().sub(clientSize()).max(0).div(2);
+                scrollMax = scrollRange.add(imageScrollRangeExtension.max(0));
+                scrollMin = scrollRange.neg().add(imageScrollRangeExtension.min(0));
+            }
+
+            // Calculate current excess of the scroll range
+            calcScrollRange();
+            const scroll = new Point(imageScrollX.x, imageScrollY.x);
+            const overMax = scroll.sub(scrollMax).max(0);
+            const underMin = scroll.sub(scrollMin).min(0);
+            
+            // Apply zoom and recalculate the scroll range
+            zoom = newZoom;
+            calcScrollRange();
+
+            // Apply zoom shift and calculate new excess of the scroll range
+            const newScroll = scroll.add(zoomShift);
+            const newOverMax = newScroll.sub(scrollMax).max(0);
+            const newUnderMin = newScroll.sub(scrollMin).min(0);
+
+            // Calculate whether the zoom shift pushes beyond the scroll range and by how much.
+            // If it does, extend the range so that it does not push back from the shift.
+            const newScrollRangeExtension = 
+                newOverMax.sub(overMax).max(0)
+                .add(newUnderMin.sub(underMin).min(0));
+            imageScrollRangeExtension = imageScrollRangeExtension.binary(newScrollRangeExtension, (a, b) =>
+            {
+                if (Math.abs(b) < 1e-5)
+                {
+                    return a; // Ignore tiny changes, can get b==0 or maybe an opposite-signed value from numerical error
+                }
+                return Math.sign(a) == Math.sign(b) ? a + b : b;
+            });
+
+            // If scrolled back towards the natural range, reduce the extension
+            imageScrollRangeExtension = imageScrollRangeExtension
+                .min(newScroll.sub(scrollRange).max(0))
+                .max(newScroll.sub(scrollRange.neg()).min(0));
+
+            // Apply the shift
+            imageScrollX.x += zoomShift.x;
+            imageScrollX.target += zoomShift.x;
+            imageScrollY.x += zoomShift.y;
+            imageScrollY.target += zoomShift.y;
+            
+            calcScrollRange(); // Recalculate the range
+        }
+
+        // Animate scroll
+        imageScrollX.update(dt, scrollMin.x, scrollMax.x);
+        imageScrollY.update(dt, scrollMin.y, scrollMax.y);
+
         updateImageTransform();
     }
 }

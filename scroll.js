@@ -3,17 +3,27 @@ export default class Scroll
 {
     constructor()
     {
-        // position and velocity
+        this.reset();
+    }
+
+    reset()
+    {
         this.x = 0;
         this.v = 0;
-
-        // target position
         this.target = 0;
-
-        // if true, animate towards target, ignoring velocity
         this.animate = false;
+        this.touch = false;
+    }
 
-        // if true, follow the target exactly. Ignored in animate mode.
+    grab()
+    {
+        this.target = this.x;
+        this.touch = true;
+        this.animate = false;
+    }
+
+    release()
+    {
         this.touch = false;
     }
 
@@ -40,7 +50,7 @@ export default class Scroll
                 let x2 = this.target;
                 if (overScroll != 0)
                 {
-                    x2 = x2 - overScroll + Math.pow(Math.abs(overScroll), 0.8) * Math.sign(overScroll);
+                    x2 = x2 - overScroll + Math.pow(Math.abs(overScroll), 0.7) * Math.sign(overScroll);
                 }
                 this.v = (x2 - this.x) / dt;
                 this.x = x2;
@@ -57,7 +67,7 @@ export default class Scroll
                 else
                 {
                     // Out of bounds, pull toward the bounds with a critically damped spring
-                    const w = 5; // angular frequency
+                    const w = 10; // angular frequency
                     this.v = (this.v - dt * w * w * overScroll) / (1 + 2 * dt * w + dt * dt * w * w); // implicit integration
                 }
 
