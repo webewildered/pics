@@ -26,6 +26,10 @@ var zoomMin = 1;
 var naturalWidth = 0;
 var naturalHeight = 0;
 var enableImageControls = true; // Whether to show the top and bottom bars over the image
+var imagePressed = false; // true if the image has been clicked/touched and not yet released
+var imageDrag = false; // True if the image is being dragged
+var imageMouseOrigin = { x:0, y:0 }; // Location where the image press began
+var imageOffset = { x: 0, y: 0 }; // Screenspace offset of the image from center
 
 //
 // Gallery
@@ -82,23 +86,14 @@ function clickThumb(galleryEntry)
     zoomMin = Math.min(1, window.innerWidth / naturalWidth, window.innerHeight / naturalHeight);
     zoom = zoomMin;
     zoomTarget = zoom;
-    imageProps = calcImageProperties(image, zoom);
+    imageOffset = { x: 0, y: 0 };
 
     image = $('<img>')
         .attr('src', 'images/' + galleryEntry.file)
-        .css(
-        {
-            'position': 'absolute',
-            'width': imageProps.width,
-            'height': imageProps.height,
-            'left': imageProps.x,
-            'top': imageProps.y
-        })
-        .appendTo('#imageView');
-    image.on('click', (event) =>
-        {
-            showImageBar(!enableImageControls, false); // toggle image bar with fade
-        });
+        .attr('draggable', false)
+        .css({ 'position': 'absolute' });
+    updateImageTransform();
+    image.appendTo('#imageView');
     
     focus = imageMode;
     enableImageControls = true;
@@ -186,9 +181,11 @@ window.onload = () =>
         });
     layout();
 
-    // Handle gui events
+    // Handle input events
     $('#uploadButton').on('click', upload);
     $('#backButton').on('click', clickBackButton);
+    $('#imageView').on('mousedown', onImageMousedown);
+
 
     // Handle thumbnails touch inputs
     const thumbContainer = $('#thumbContainer');
@@ -199,6 +196,48 @@ window.onload = () =>
     // Animate
     tLast = window.performance.now();
     requestAnimationFrame(animate);
+}
+
+function onImageMousedown(event)
+{
+    imagePressed = true;
+    imageMouseOrigin = { x: event.clientX, y: event.clientY };
+}
+
+window.onmousemove = (event) =>
+{
+    if (imagePressed)
+    {
+        if (!imageDrag)
+        {
+            const deadZone = 5; // Distance the mouse must move before beginning to drag the image
+            const dx = event.clientX - imageMouseOrigin.x;
+            const dy = event.clientY - imageMouseOrigin.y;
+            if (dx * dx + dy * dy > deadZone * deadZone)
+            {
+                imageDrag = true;
+            }
+        }
+        if (imageDrag)
+        {
+            imageOffset.x += event.movementX;
+            imageOffset.y += event.movementY;
+        }
+        return;
+    }
+}
+
+window.onmouseup = () =>
+{
+    if (imagePressed)
+    {
+        if (!imageDrag)
+        {
+            showImageBar(!enableImageControls, false); // toggle image bar with fade
+        }
+        imagePressed = false;
+        imageDrag = false;
+    }
 }
 
 //
@@ -477,16 +516,17 @@ function updateScroll(dt)
     }
 }
 
-function calcImageProperties(image, zoom)
+function updateImageTransform()
 {
     var width = naturalWidth * zoom;
     var height = naturalHeight * zoom;
-    return {
-        x: (window.innerWidth - width) / 2,
-        y: (window.innerHeight - height) / 2,
-        width: width,
-        height: height
-    };
+    image.css(
+    {
+        'width': width,
+        'height': height,
+        'left': (window.innerWidth - width) / 2 + imageOffset.x,
+        'top': (window.innerHeight - height) / 2 + imageOffset.y
+    });
 }
 
 function updateImage(dt)
@@ -494,14 +534,7 @@ function updateImage(dt)
     if (image)
     {
         zoom = zoomTarget - decay(zoomTarget - zoom, dt, 0.0000001);
-        imageProps = calcImageProperties(image, zoom);
-        image.css(
-        {
-            'width': imageProps.width,
-            'height': imageProps.height,
-            'left': imageProps.x,
-            'top': imageProps.y
-        });
+        updateImageTransform();
     }
 }
 
