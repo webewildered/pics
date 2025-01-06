@@ -1,3 +1,4 @@
+import Point from './point.js';
 
 //
 // GUI mode
@@ -22,14 +23,14 @@ var scrollVelocity = 0; // In touch mode, the current scrolling velocity
 
 var zoom = 1;
 var zoomTarget = 1;
+var zoomCenter = new Point(); // Point in image space to zoom about, relative to the center of the image
 var zoomMin = 1;
-var naturalWidth = 0;
-var naturalHeight = 0;
+var nativeSize = new Point();
 var enableImageControls = true; // Whether to show the top and bottom bars over the image
 var imagePressed = false; // true if the image has been clicked/touched and not yet released
 var imageDrag = false; // True if the image is being dragged
-var imageMouseOrigin = { x:0, y:0 }; // Location where the image press began
-var imageOffset = { x: 0, y: 0 }; // Screenspace offset of the image from center
+var imageMouseOrigin = new Point(); // Location where the image press began
+var imageOffset = new Point(); // Screenspace offset of the image from center
 
 //
 // Gallery
@@ -75,18 +76,17 @@ function addImage(galleryEntry)
     styleImage(image, isEnd);
 }
 
-let image;
+var image;
 function clickThumb(galleryEntry)
 {
     fade($('#imageView'), true, 0.1);
     
     // Calculate the initial zoom
-    naturalWidth = galleryEntry.width;
-    naturalHeight = galleryEntry.height;
-    zoomMin = Math.min(1, window.innerWidth / naturalWidth, window.innerHeight / naturalHeight);
+    nativeSize = new Point(galleryEntry.width, galleryEntry.height)
+    zoomMin = Math.min(1, window.innerWidth / nativeSize.x, window.innerHeight / nativeSize.y);
     zoom = zoomMin;
     zoomTarget = zoom;
-    imageOffset = { x: 0, y: 0 };
+    imageOffset = new Point();
 
     image = $('<img>')
         .attr('src', 'images/' + galleryEntry.file)
@@ -122,7 +122,7 @@ async function upload(event)
     event.preventDefault();
 
     const files = document.getElementById('fileInput');
-    var count = 0;
+    let count = 0;
     for (const file of files.files)
     {
         const formData = new FormData();
@@ -196,48 +196,6 @@ window.onload = () =>
     // Animate
     tLast = window.performance.now();
     requestAnimationFrame(animate);
-}
-
-function onImageMousedown(event)
-{
-    imagePressed = true;
-    imageMouseOrigin = { x: event.clientX, y: event.clientY };
-}
-
-window.onmousemove = (event) =>
-{
-    if (imagePressed)
-    {
-        if (!imageDrag)
-        {
-            const deadZone = 5; // Distance the mouse must move before beginning to drag the image
-            const dx = event.clientX - imageMouseOrigin.x;
-            const dy = event.clientY - imageMouseOrigin.y;
-            if (dx * dx + dy * dy > deadZone * deadZone)
-            {
-                imageDrag = true;
-            }
-        }
-        if (imageDrag)
-        {
-            imageOffset.x += event.movementX;
-            imageOffset.y += event.movementY;
-        }
-        return;
-    }
-}
-
-window.onmouseup = () =>
-{
-    if (imagePressed)
-    {
-        if (!imageDrag)
-        {
-            showImageBar(!enableImageControls, false); // toggle image bar with fade
-        }
-        imagePressed = false;
-        imageDrag = false;
-    }
 }
 
 //
@@ -314,6 +272,45 @@ function onTouchEnd(event)
 // PC input handlers
 //
 
+function onImageMousedown(event)
+{
+    imagePressed = true;
+    imageMouseOrigin = new Point(event.clientX, event.clientY);
+}
+
+onmousemove = (event) =>
+{
+    if (imagePressed)
+    {
+        if (!imageDrag)
+        {
+            const deadZone = 5; // Distance the mouse must move before beginning to drag the image
+            if (imageMouseOrigin.distanceSquared(new Point(event.clientX, event.clientY)) > deadZone * deadZone)
+            {
+                imageDrag = true;
+            }
+        }
+        if (imageDrag)
+        {
+            imageOffset = imageOffset.add(new Point(event.movementX, event.movementY));
+        }
+        return;
+    }
+}
+
+onmouseup = () =>
+{
+    if (imagePressed)
+    {
+        if (!imageDrag)
+        {
+            showImageBar(!enableImageControls, false); // toggle image bar with fade
+        }
+        imagePressed = false;
+        imageDrag = false;
+    }
+}
+
 onwheel = (event) =>
 {
     switch (focus)
@@ -340,6 +337,10 @@ onwheel = (event) =>
                 {
                     showImageBar(false, false); // fade image bar out
                 }
+
+                // Find the mouse position in image space
+                const imageOffset = image.offset();
+                zoomCenter = new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top).div(zoom).sub(nativeSize.div(2));
             }
     }
 
@@ -357,13 +358,13 @@ onwheel = (event) =>
 //
 
 // Utility for fading elements in and out
-let fades = [];
+var fades = [];
 function fade(elements, fadeIn, duration = 0)
 {
     elements.each(function()
     {
         const element = $(this);
-        for (var i = 0; i < fades.length; i++)
+        for (let i = 0; i < fades.length; i++)
         {
             const fade = fades[i];
             if (fade.element.is(element))
@@ -376,7 +377,7 @@ function fade(elements, fadeIn, duration = 0)
                 }
                 
                 // Replace the animation
-                var rate = 1 / duration;
+                let rate = 1 / duration;
                 fade.rate = (fade.fadeIn == fadeIn) ? Math.max(rate, fade.rate) : rate;
                 fade.fadeIn = fadeIn;
                 return;
@@ -396,7 +397,7 @@ function fade(elements, fadeIn, duration = 0)
             return;
         }
 
-        var rate = 1 / duration;
+        let rate = 1 / duration;
         fades.push({
             element: element,
             fadeIn: fadeIn,
@@ -407,10 +408,10 @@ function fade(elements, fadeIn, duration = 0)
 
 function updateFades(dt)
 {
-    for (var i = 0; i < fades.length; i++)
+    for (let i = 0; i < fades.length; i++)
     {
         const fade = fades[i];
-        opacity = Number(fade.element.css('opacity'));
+        let opacity = Number(fade.element.css('opacity'));
         if (fade.fadeIn)
         {
             fade.element.show();
@@ -474,8 +475,8 @@ function updateScroll(dt)
             // Finger down:
             // Within bounds, track the finger movement directly.
             // Out of bounds, lag behind, simulating a force pulling back towards the bounds.
-            var overScroll = calcOverScroll(scrollTarget);
-            var newScroll = scrollTarget;
+            let overScroll = calcOverScroll(scrollTarget);
+            let newScroll = scrollTarget;
             if (overScroll != 0)
             {
                 newScroll = newScroll - overScroll + Math.pow(Math.abs(overScroll), 0.8) * Math.sign(overScroll);
@@ -486,7 +487,7 @@ function updateScroll(dt)
         else
         {
             // Finger released
-            var overScroll = calcOverScroll(scroll);
+            let overScroll = calcOverScroll(scroll);
             if (overScroll == 0)
             {
                 // Within bounds, damp velocity
@@ -511,21 +512,21 @@ function updateScroll(dt)
         scrollTarget = Math.min(scrollTarget, maxScroll);
 
         // Animate to the target
-        var newScroll = scrollTarget - decay(scrollTarget - scroll, dt, 0.0000001, 1);
+        let newScroll = scrollTarget - decay(scrollTarget - scroll, dt, 0.0000001, 1);
         setScroll(newScroll);
     }
 }
 
 function updateImageTransform()
 {
-    var width = naturalWidth * zoom;
-    var height = naturalHeight * zoom;
+    let scaledSize = nativeSize.mul(zoom);
+    let scaledPosition = new Point(window.innerWidth, window.innerHeight).sub(scaledSize).div(2).add(imageOffset)
     image.css(
     {
-        'width': width,
-        'height': height,
-        'left': (window.innerWidth - width) / 2 + imageOffset.x,
-        'top': (window.innerHeight - height) / 2 + imageOffset.y
+        'width': scaledSize.x,
+        'height': scaledSize.y,
+        'left': scaledPosition.x,
+        'top': scaledPosition.y
     });
 }
 
@@ -533,12 +534,15 @@ function updateImage(dt)
 {
     if (image)
     {
-        zoom = zoomTarget - decay(zoomTarget - zoom, dt, 0.0000001);
+        const newZoom = zoomTarget - decay(zoomTarget - zoom, dt, 0.0000001);
+        const zoomShift = zoomCenter.mul(newZoom - zoom);
+        imageOffset = imageOffset.sub(zoomShift);
+        zoom = newZoom;
         updateImageTransform();
     }
 }
 
-let tLast;
+var tLast;
 function animate(t)
 {
     // Calculate time since the last animate() call
