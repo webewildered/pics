@@ -589,6 +589,7 @@ function updateImage(dt)
             scrollRange = new Point();
             scrollMin = new Point();
             scrollMax = new Point();
+            zoom = newZoom;
         }
         else
         {
