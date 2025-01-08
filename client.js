@@ -85,11 +85,102 @@ function clickThumb(galleryEntry)
     imageScrollX.reset();
     imageScrollY.reset();
 
+    $('#time').text('');
+    $('#location').text('');
+
     image = $('<img>')
         .attr('src', 'images/' + galleryEntry.file)
         .attr('draggable', false)
         .addClass('noSelect')
-        .css({ 'position': 'absolute' });
+        .css({ 'position': 'absolute' })
+    image.on('load', () =>
+    {
+        const imageInner = image.get(0);
+        EXIF.getData(imageInner, function()
+        {
+            // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
+            var dateTime = EXIF.getTag(this, 'DateTimeOriginal');
+            const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+            if (dateTimeMatches)
+            {
+                // Convert to local format
+                let jsDateTime = new Date();
+                jsDateTime.setFullYear(Number(dateTimeMatches[1]));
+                jsDateTime.setMonth(Number(dateTimeMatches[2]));
+                jsDateTime.setDate(Number(dateTimeMatches[3]));
+                jsDateTime.setHours(Number(dateTimeMatches[4]));
+                jsDateTime.setMinutes(Number(dateTimeMatches[5]));
+                jsDateTime.setSeconds(Number(dateTimeMatches[6]));
+                const format = new Intl.DateTimeFormat();
+                format.dateStyle = 'full';
+                dateTime = jsDateTime.toLocaleString(format);
+            }
+            $('#time').text(dateTime);
+
+            // Extract GPS coordinates from exif
+            function exifGPSCoordToDeg(exifGPSCoord)
+            {
+                if (exifGPSCoord.length == 3)
+                {
+                    const degrees = exifGPSCoord[0];
+                    const minutes = exifGPSCoord[1];
+                    const seconds = exifGPSCoord[2];
+                    return degrees + minutes / 60 + seconds / 3600;
+                }
+                return 0;
+            }
+            const lat = exifGPSCoordToDeg(EXIF.getTag(this, 'GPSLatitude'));
+            const lon = exifGPSCoordToDeg(EXIF.getTag(this, 'GPSLongitude'));
+
+            // Reverse geocode to get place name, see https://nominatim.org/release-docs/latest/api/Reverse/
+            var loc = lat + ', ' + lon; // Show GPS coordinates in case of failure
+            const req = 'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=geocodejson';
+            fetch(req, { method: 'GET' })
+                .then((res) => res.json())
+                .then((json) =>
+                {
+                    if (typeof json.features !== 'undefined' && 
+                        Array.isArray(json.features) &&
+                        json.features.length >= 1 &&
+                        typeof json.features[0].properties !== 'undefined' &&
+                        typeof json.features[0].properties.geocoding !== 'undefined')
+                    {
+                        const geocoding = json.features[0].properties.geocoding;
+
+                        // Fields to extract from the address, in order of preference
+                        function getAddrPart(partPreferences)
+                        {
+                            for (const part of partPreferences)
+                            {
+                                if (typeof geocoding[part] !== 'undefined')
+                                {
+                                    return geocoding[part];
+                                }
+                            }
+                            return null;
+                        }
+                        const loc1 = getAddrPart(['district', 'locality', 'postcode']);
+                        const loc2 = getAddrPart(['city', 'state', 'country']);
+                        if (loc1 || loc2)
+                        {
+                            if (loc1 && loc2)
+                            {
+                                loc = loc1 + ', ' + loc2;
+                            }
+                            else if (loc1)
+                            {
+                                loc = loc1;
+                            }
+                            else
+                            {
+                                loc = loc2;
+                            }
+                        }
+                    }
+                })
+                .finally(() => $('#location').text(loc));
+        });
+    });
     updateImageTransform();
     image.appendTo('#imageView');
     

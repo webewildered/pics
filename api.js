@@ -6,7 +6,7 @@ const rand = require('random-seed').create();
 const sharp = require('sharp');
 const app = express();
 const path = require('path');
-const heicConvert = require('heic-convert');
+const heicConvert = require('heic-jpg-exif');//require('heic-convert');
 
 //
 // Utilities
@@ -283,7 +283,10 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         else if (type === 'heic')
         {
             // Convert the heic to a jpeg
-            const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
+            // const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
+            // fileName = makeKey() + '.jpg';
+            // fs.writeFileSync('images/' + fileName, converted);
+            const converted = await heicConvert(image);
             fileName = makeKey() + '.jpg';
             fs.writeFileSync('images/' + fileName, converted);
         }
@@ -296,7 +299,7 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
     }
     catch (err)
     {
-        fail('file error: ' + err.stack);
+        fail('file error: ' + err.toString() + '\n' + err.stack);
         return;
     }
     
