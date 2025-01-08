@@ -3,9 +3,12 @@ body {
 }
 
 .noSelect {
-    -webkit-user-select: none; /* Safari */
-    -ms-user-select: none; /* IE 10 and IE 11 */
-    user-select: none; /* Standard syntax */
+    -webkit-user-select: none;
+    /* Safari */
+    -ms-user-select: none;
+    /* IE 10 and IE 11 */
+    user-select: none;
+    /* Standard syntax */
 }
 
 /*
@@ -63,7 +66,7 @@ body {
     position: absolute;
     width: 100%;
     padding: 10px;
-    z-index: 3;
+    z-index: 4;
 }
 
 .imageBarTop {
@@ -91,11 +94,32 @@ body {
     text-decoration: none;
 }
 
-
 #backButton:hover {
     color: #5fccff;
     text-decoration: none;
     cursor: pointer;
+}
+
+.navButton {
+    position: absolute;
+    width: 30%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    z-index: 3;
+    opacity: 0;
+}
+
+.navButton:hover {
+    cursor: pointer;
+    opacity: 1;
+}
+
+.navIcon {
+    color: white;
+    font-size: 50;
+    -webkit-text-stroke: 2px black;
+    margin: 30px;
 }
 
 .image {
