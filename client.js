@@ -235,15 +235,16 @@ async function upload(event)
 
 function layout()
 {
-    const newThumbPitch = Math.ceil((document.body.clientWidth + thumbMargin) / (thumbRes + thumbMargin));
-    const newThumbSize = Math.ceil((document.body.clientWidth + thumbMargin) / newThumbPitch - thumbMargin);
-    const newThumbSizeEnd = document.body.clientWidth - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
+    var width = $('#thumbContainer').width();
+    const newThumbPitch = Math.ceil((width + thumbMargin) / (thumbRes + thumbMargin));
+    const newThumbSize = Math.ceil((width + thumbMargin) / newThumbPitch - thumbMargin);
+    const newThumbSizeEnd = width - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
     if (newThumbPitch !== thumbPitch || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
     {
         thumbPitch = newThumbPitch;
         thumbSize = newThumbSize;
         thumbSizeEnd = newThumbSizeEnd;
-        console.log('width ' + document.body.clientWidth + ' pitch ' + thumbPitch + ' size ' + thumbSize);
+        console.log('width ' + width + ' pitch ' + thumbPitch + ' size ' + thumbSize);
         
         styleImage($('#thumbs').children(), false);
         styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
@@ -259,6 +260,7 @@ window.onload = () =>
         .then((response) => response.json())
         .then((gallery) =>
         {
+            console.log('hi');
             for (const galleryEntry of gallery.images)
             {
                 addImage(galleryEntry);
