@@ -26,7 +26,20 @@
 
     <!-- Image viewer -->
     <div id="imageView" hidden>
-        <!-- top bar -->
+
+        <!-- gui toggle -->
+        <div id="imageClick">
+        </div>
+
+        <!-- navigation buttons -->
+        <div id="navButtonLeft" class="navButton" style="left: 0; justify-content: left;">
+            <div class="navIcon noSelect">&lt;</div>
+        </div>
+        <div id="navButtonRight" class="navButton" style="right: 0; justify-content: right;">
+            <div class="navIcon noSelect">&gt;</div>
+        </div>
+
+        <!-- top and bottom bar -->
         <div class="imageBar imageBarTop">
             <div class="imageBarTopControl">
                 <span class="noSelect" id="backButton">&lt;</a>
@@ -37,18 +50,8 @@
             </div>
             <div class="imageBarTopControl"></div>
         </div>
-
-        <!-- bottom bar -->
         <div class="imageBar" style="bottom: 0;">
             <span style="color: white; font-size: 14pt">Thumbnail bar will go here</span>
-        </div>
-
-        <!-- navigation buttons -->
-        <div id="navButtonLeft" class="navButton" style="left: 0; justify-content: left;">
-            <div class="navIcon noSelect">&lt;</div>
-        </div>
-        <div id="navButtonRight" class="navButton" style="right: 0; justify-content: right;">
-            <div class="navIcon noSelect">&gt;</div>
         </div>
     </div>
 </body>

@@ -73,10 +73,13 @@ function addImage(galleryEntry)
 }
 
 var image;
-function clickThumb(galleryEntry)
+var imageIndex;
+function setImage(index)
 {
-    fade($('#imageView'), true, 0.1);
-    
+    const oldImage = image;
+    const galleryEntry = gallery.images[index];
+    imageIndex = index;
+
     // Calculate the initial zoom
     nativeSize = new Point(galleryEntry.width, galleryEntry.height)
     zoomMin = Math.min(1, window.innerWidth / nativeSize.x, window.innerHeight / nativeSize.y);
@@ -91,10 +94,16 @@ function clickThumb(galleryEntry)
     image = $('<img>')
         .attr('src', 'images/' + galleryEntry.file)
         .attr('draggable', false)
+        .addClass('mainImage')
         .addClass('noSelect')
-        .css({ 'position': 'absolute' })
     image.on('load', () =>
     {
+        // Clear existing image
+        if (oldImage)
+        {
+            oldImage.remove();
+        }
+
         const imageInner = image.get(0);
         EXIF.getData(imageInner, function()
         {
@@ -183,10 +192,26 @@ function clickThumb(galleryEntry)
     });
     updateImageTransform();
     image.appendTo('#imageView');
+}
+
+function clickThumb(galleryEntry)
+{
+    fade($('#imageView'), true, 0.1);
+
+    setImage(galleryEntry.index);
     
     focus = imageMode;
     enableImageControls = true;
     showImageBar(true, true); // show image bar immediate
+}
+
+function onNav(direction)
+{
+    let newIndex = Math.min(Math.max(imageIndex + direction, 0), gallery.images.length);
+    if (newIndex != imageIndex)
+    {
+        setImage(newIndex);
+    }
 }
 
 function showImageBar(show, immediate)
@@ -226,6 +251,8 @@ async function upload(event)
         else
         {
             console.log('Added ' + galleryEntry.title);
+            galleryEntry.index = gallery.images.length;
+            gallery.images.push(galleryEntry);
             addImage(galleryEntry);
             count++;
         }
@@ -252,17 +279,20 @@ function layout()
 }
 window.onresize = layout;
 
+var gallery;
 window.onload = () =>
 {
     // Load the gallery
     const thumbs = $('#thumbs');
     fetch('galleries/' + getGalleryKey() + '.json')
         .then((response) => response.json())
-        .then((gallery) =>
+        .then((json) =>
         {
-            console.log('hi');
-            for (const galleryEntry of gallery.images)
+            gallery = json;
+            for (let i = 0; i < gallery.images.length; i++)
             {
+                const galleryEntry = gallery.images[i];
+                galleryEntry.index = i;
                 addImage(galleryEntry);
             }
         })
@@ -275,8 +305,9 @@ window.onload = () =>
     // Handle input events
     $('#uploadButton').on('click', upload);
     $('#backButton').on('click', clickBackButton);
-    $('#imageView').on('mousedown', onImageMousedown);
-
+    $('#imageClick').on('mousedown', onImageMousedown);
+    $('#navButtonLeft').on('click', () => onNav(-1));
+    $('#navButtonRight').on('click', () => onNav(1));
 
     // Handle thumbnails touch inputs
     const thumbContainer = $('#thumbContainer');
@@ -426,10 +457,12 @@ onwheel = (event) =>
                 if (zoomTarget == zoomMin && oldZoomTarget != zoomMin)
                 {
                     showImageBar(true, false); // fade image bar in
+                    $('.navButton').css({width:'30%'}); // Big navigation buttons
                 }
                 else if (oldZoomTarget == zoomMin && zoomTarget != zoomMin)
                 {
                     showImageBar(false, false); // fade image bar out
+                    $('.navButton').css({width:'10%'}); // Small navigation buttons
                 }
 
                 // Find the mouse position in image space
@@ -595,6 +628,7 @@ function updateImage(dt)
         }
         else
         {
+
             // Calculate the position change required to maintain the position of the zoomCenter in screen space
             const zoomShift = zoomCenter.mul(zoom - newZoom);
 
