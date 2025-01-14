@@ -238,6 +238,8 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
     let cleanup = []; // List of files to delete in case of failure
     try
     {
+        sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
+
         // Read the gallery file to validate the key
         const galleryPath = 'galleries/' + req.body.galleryKey + '.json';
         const data = fs.readFileSync(galleryPath);
@@ -329,53 +331,51 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
                 }
             }
 
-            // Set up video processing
-            let video = ffmpeg(originalPath);
+            function ffpromise(video, cb)
+            {
+                return new Promise((resolve, reject) =>
+                {
+                    let cl = '';
+                    video
+                        .on('start', (clStart) => { cl = clStart; })
+                        .on('error', (err, stdout, stderr) =>
+                        {
+                            let message = err.message + cl;
+                            reject(new Error(message));
+                        })
+                        .on('end', (result) => resolve(result));
+                    cb(video);
+                });
+            }
+
             if (foundUnsupportedCodec)
             {
                 // Transcode
                 fileName = makeKey() + '.mp4';
                 const newPath = 'images/' + fileName;
-                video.output(newPath);
                 cleanup.push(newPath);
+                await ffpromise(ffmpeg(originalPath).output(newPath), (video) => video.run());
             }
-
-            // Capture a thumbnail
-            const tempThumbFileName = makeKey() + '.jpg';
-            video.thumbnail(
-                {
-                    folder: 'thumbs',
-                    filename: tempThumbFileName,
-                    timestamps: [Math.min(1, duration / 2)]
-                });
-
-            // Run ffmpeg
-            await new Promise((resolve, reject) =>
+            else
             {
-                let cl = '';
-                video
-                    .on('start', (clStart) => { cl = clStart; })
-                    .on('error', (err, stdout, stderr) =>
-                    {
-                        let message = err.message + cl;
-                        reject(new Error(message));
-                    })
-                    .on('end', () => resolve())
-                    .run();
-            });
-
-            // If not transcoded, move the original
-            if (!foundUnsupportedCodec)
-            {
+                // Move the original
                 fileName = path.parse(fileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
                 fs.renameSync(originalPath, 'images/' + fileName); // TODO this could probably be async
             }
 
+            // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
+            const tempThumbFileName = makeKey() + '.jpg';
+            const tempThumbPath  = 'thumbs/' + tempThumbFileName;
+            await ffpromise(ffmpeg(originalPath), (video) => 
+            {
+                video.screenshots({filename: tempThumbFileName, folder: 'thumbs', timestamps: [Math.min(1, duration / 2)]})
+            });
+
             // Size the thumbnail
+            const sharpImage = sharp(tempThumbPath);
             const thumbFileName = makeKey() + '.jpg';
-            const sharpImage = sharp('thumbs/' + tempThumbFileName);
             await createThumb(sharpImage, 'thumbs/' + thumbFileName);
-            fs.unlinkSync('thumbs/' + tempThumbFileName);
+            fs.unlinkSync(tempThumbPath);
 
             // Create the gallery entry
             galleryEntry = {
