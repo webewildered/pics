@@ -38,7 +38,7 @@ export default class Feeler extends EventTarget
         {
             for (const eventTouch of event.changedTouches)
             {
-                const touch = new FeelTouch(eventTouch.identifier, new Point(eventTouch.pageX, eventTouch.pageY));
+                const touch = new FeelTouch(eventTouch.identifier, new Point(eventTouch.clientX, eventTouch.clientY));
                 const event = new FeelEvent('start', this.touches, touch);
                 this.dispatchEvent(event);
                 if (!event.rejected)
@@ -72,7 +72,7 @@ export default class Feeler extends EventTarget
                 const touch = this.getTouch(eventTouch);
                 if (touch)
                 {
-                    touch.pos = new Point(eventTouch.pageX, eventTouch.pageY);
+                    touch.pos = new Point(eventTouch.clientX, eventTouch.clientY);
                 }
             }
             this.dispatchEvent(new FeelEvent('move', this.touches));

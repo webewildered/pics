@@ -313,25 +313,60 @@ window.onload = () =>
     const imageFeeler = new Feeler($('#imageClick').get(0));
     imageFeeler.addEventListener('start', (event) => 
     {
-        if (event.touches.length)
+        if (event.touches.length == 1)
+        {
+            if (!imageScrollX.touch)
+            {
+                // Seems to be no deadzone for multitouch
+                startImagePan();
+            }
+        }
+        else if (event.touches.length == 2)
         {
             event.reject();
         }
     });
     imageFeeler.addEventListener('end', (event) =>
     {
-        endImagePan()
+        if (event.touches.length == 1)
+        {
+            endImagePan()
+        }
     });
     imageFeeler.addEventListener('move', (event) =>
     {
-        if (imageScrollX.touch)
+        if (event.touches.length == 1)
         {
-            const touch = event.touches[0];
-            moveImagePan(touch.pos.sub(touch.last));
+            if (imageScrollX.touch)
+            {
+                const touch = event.touches[0];
+                moveImagePan(touch.pos.sub(touch.last));
+            }
+            else
+            {
+                startImagePan();
+            }
         }
         else
         {
-            startImagePan();
+            const t0 = event.touches[0];
+            const t1 = event.touches[1];
+            const center = t0.pos.add(t1.pos).mul(0.5);
+            const lastCenter = t0.last.add(t1.last).mul(0.5);
+            const movement = center.sub(lastCenter);
+
+            const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
+            const imageOffset = image.offset();
+            const scaleMovement = center.sub(new Point(imageOffset.left, imageOffset.top)).mul(scale - 1);
+            
+            moveImagePan(movement.sub(scaleMovement));
+
+            // // Find the mouse position in image space
+            // const imageOffset = image.offset();
+            // zoomCenter = center.sub(new Point(imageOffset.left, imageOffset.top))
+            //     .div(zoom) // Relative to topleft corner
+            //     .max(0).min(nativeSize) // Clamped to image
+            //     .sub(nativeSize.div(2)); // Relative to image center
         }
     });
 
