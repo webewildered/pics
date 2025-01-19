@@ -93,22 +93,37 @@ function setImage(index)
     format.dateStyle = 'full';
     $('#time').text(date.toLocaleString(format));
     $('#location').text(galleryEntry.location);
-
-    image = $('<img>')
-        .attr('src', 'images/' + galleryEntry.file)
-        .attr('draggable', false)
+    const sourcePath = 'images/' + galleryEntry.file;
+    const isVideo = galleryEntry.file.endsWith('.mp4');
+    if (isVideo)
+    {
+        image = $('<video>');//.attr('controls', '');
+        $('<source>').attr('src', sourcePath).appendTo(image);
+    }
+    else
+    {
+        image = $('<img>')
+            .attr('src', sourcePath)
+            .attr('draggable', false);
+    }
+    image
         .addClass('mainImage')
         .addClass('noSelect')
-    image.on('load', () =>
-    {
-        // Clear existing image
-        if (oldImage)
+        .on('load', () =>
         {
-            oldImage.remove();
-        }
-    });
+            // Clear existing image
+            if (oldImage)
+            {
+                oldImage.remove();
+            }
+        });
     updateImageTransform();
     image.appendTo('#imageView');
+    if (isVideo)
+    {
+        const video = image.get(0);
+        video.play();
+    }
 }
 
 function clickThumb(galleryEntry)
