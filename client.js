@@ -209,7 +209,7 @@ function layout()
         thumbPitch = newThumbPitch;
         thumbSize = newThumbSize;
         thumbSizeEnd = newThumbSizeEnd;
-        console.log('width ' + width + ' pitch ' + thumbPitch + ' size ' + thumbSize);
+        //console.log('width ' + width + ' pitch ' + thumbPitch + ' size ' + thumbSize);
         
         styleImage($('#thumbs').children(), false);
         styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
@@ -234,11 +234,11 @@ window.onload = () =>
 
     // If there is no mouse, then hide mouse controls
     const mouseSetting = params.get('mouse');
-    if (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1')
+    if (mouseSetting && (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1'))
     {
         hasMouse = true
     }
-    else if (mouseSetting.toLowerCase() === 'false' || mouseSetting === '0')
+    else if (mouseSetting && (mouseSetting.toLowerCase() === 'false' || mouseSetting === '0'))
     {
         hasMouse = false;
     }
@@ -275,14 +275,50 @@ window.onload = () =>
     $('#uploadButton').on('click', upload);
     $('#backButton').on('click', clickBackButton);
     $('#imageClick').on('mousedown', onImageMousedown);
+    $('#imageClick').on('mousemove', onImageMousemove);
+    $('#imageClick').on('mouseup', onImageMouseup);
     $('#navButtonLeft').on('click', () => onNav(-1));
     $('#navButtonRight').on('click', () => onNav(1));
 
-    // Handle thumbnails touch inputs
-    const thumbContainer = $('#thumbContainer');
-    thumbContainer.on('touchstart', onTouchStart);
-    thumbContainer.on('touchend', onTouchEnd);
-    thumbContainer.on('touchmove', onTouchMove);
+    // Touch input - thumbnails
+    const hammerThumbs = new Hammer.Manager($('#thumbContainer').get(0));
+    hammerThumbs.add( new Hammer.Pan({ direction: Hammer.DIRECTION_VERTICAL }) );
+    let lastDeltaY;
+    hammerThumbs.on('panstart', (event) =>
+    {
+        lastDeltaY = 0;
+        thumbScroll.grab();
+    });
+    hammerThumbs.on('panend', (event) =>
+    {
+        thumbScroll.release();
+    });
+    hammerThumbs.on('panmove', (event) =>
+    {
+        thumbScroll.target -= (event.deltaY - lastDeltaY);
+        lastDeltaY = event.deltaY;
+    });
+
+    // Touch input - image
+    const hammerImage = new Hammer.Manager($('#imageClick').get(0));
+    hammerImage.add( new Hammer.Pan() );
+    let lastImageDeltaX, lastImageDeltaY;
+    hammerImage.on('panstart', (event) =>
+    {
+        lastImageDeltaX = 0;
+        lastImageDeltaY = 0;
+        startImagePan();
+    });
+    hammerImage.on('panend', (event) =>
+    {
+        endImagePan();
+    });
+    hammerImage.on('panmove', (event) =>
+    {
+        moveImagePan(event.deltaX - lastImageDeltaX, event.deltaY - lastImageDeltaY);
+        lastImageDeltaX = event.deltaX;
+        lastImageDeltaY = event.deltaY;
+    });
 
     // Animate
     tLast = window.performance.now();
@@ -290,73 +326,25 @@ window.onload = () =>
 }
 
 //
-// Touch handlers
+// Image pan input
 //
 
-function getTouchIndex(eventTouch)
+function startImagePan()
 {
-    for (let i = 0; i < touches.length; i++)
-    {
-        if (touches[i].identifier === eventTouch.identifier)
-        {
-            return i;
-        }
-    }
-    return -1;
-
+    imageScrollX.grab();
+    imageScrollY.grab();
 }
 
-function getTouch(eventTouch)
+function endImagePan()
 {
-    let touchIndex = getTouchIndex(eventTouch);
-    return (touchIndex >= 0) ? touches[touchIndex] : null;
+    imageScrollX.release();
+    imageScrollY.release();
 }
 
-function removeTouch(eventTouch)
+function moveImagePan(dx, dy)
 {
-    let touchIndex = getTouchIndex(eventTouch);
-    if (touchIndex >= 0)
-    {
-        touches.splice(touchIndex, 1);
-    }
-}
- 
-var touches = [];
-function onTouchStart(event)
-{
-    if (touches.length == 0)
-    {
-        thumbScroll.grab();
-    }
-    for (const eventTouch of event.changedTouches)
-    {
-        touches.push({pageY: eventTouch.pageY, identifier: eventTouch.identifier});
-    }
-}
-
-function onTouchMove(event)
-{
-    for (const eventTouch of event.changedTouches)
-    {
-        const touch = getTouch(eventTouch);
-        if (touch == null)
-        {
-            continue;
-        }
-
-        const deltaY = eventTouch.pageY - touch.pageY;
-        thumbScroll.target -= deltaY;
-        touch.pageY = eventTouch.pageY;
-    }
-}
-
-function onTouchEnd(event)
-{
-    for (const eventTouch of event.changedTouches)
-    {
-        removeTouch(eventTouch);
-    }
-    thumbScroll.touch = (touches.length > 0);
+    imageScrollX.target += dx;
+    imageScrollY.target += dy;
 }
 
 //
@@ -369,29 +357,32 @@ function onImageMousedown(event)
     imageMouseOrigin = new Point(event.clientX, event.clientY);
 }
 
-onmousemove = (event) =>
+function onImageMousemove(event)
 {
     if (imagePressed)
     {
+        let imageMousePos = new Point(event.clientX, event.clientY);
+        let imageMouseDelta = imageMousePos.sub(imageMouseOrigin);
         if (!imageScrollX.touch)
         {
             const deadZone = 5; // Distance the mouse must move before beginning to drag the image
-            if (imageMouseOrigin.distanceSquared(new Point(event.clientX, event.clientY)) > deadZone * deadZone)
+            const distSq = imageMouseDelta.lengthSquared();
+            if (distSq > deadZone * deadZone)
             {
-                imageScrollX.grab();
-                imageScrollY.grab();
+                startImagePan();
+                imageMouseOrigin = imageMouseOrigin.add(imageMouseDelta.mul(deadZone / Math.sqrt(distSq))).round(); // Where the mouse exits the deadzone
+                imageMouseDelta = imageMousePos.sub(imageMouseOrigin);
             }
         }
         if (imageScrollX.touch)
         {
-            imageScrollX.target += event.movementX;
-            imageScrollY.target += event.movementY;
+            moveImagePan(imageMouseDelta.x, imageMouseDelta.y);
+            imageMouseOrigin = imageMousePos;
         }
-        return;
     }
 }
 
-onmouseup = () =>
+function onImageMouseup()
 {
     if (imagePressed)
     {

@@ -35,6 +35,7 @@ export default class Point
     sign() { return this.unary((a) => Math.sign(a)); }
     floor() { return this.unary((a) => Math.floor(a)); }
     ceil() { return this.unary((a) => Math.ceil(a)); }
+    round() { return this.unary((a) => Math.round(a)); }
     sum() { return this.x + this.y; }
     distanceSquared(point) { return this.sub(point).lengthSquared(); }
     distance(point) { return Math.sqrt(this.distanceSquared(point)); }
