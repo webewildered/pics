@@ -250,7 +250,7 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         // going to load the whole thing anyway, but it probably does matter for video, which can be huge and which will be processed
         // by ffmpeg rather than js code.
         const file = req.file;
-        const originalFileName = req.file.filename;
+        const originalFileName = file.filename;
         const originalPath = 'originals/' + originalFileName;
         cleanup.push(originalPath);
         const uploadedImage = fs.readFileSync(originalPath);
@@ -259,7 +259,109 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         var galleryEntry;
         if (type === 'jpeg' || type === 'heic')
         {
-            galleryEntry = processImage(req.file, type);
+            var fileName = originalFileName;
+            var jpegImage;
+            if (type === 'jpeg')
+            {
+                // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
+                fileName = path.parse(fileName).name + '.jpg';
+                fs.renameSync('originals/' + originalFileName, 'images/' + fileName); // TODO this could probably be async
+                originalFileName = '';
+                jpegImage = uploadedImage;
+            }
+            else if (type === 'heic')
+            {
+                // Convert the heic to a jpeg
+                // const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
+                // fileName = makeKey() + '.jpg';
+                // fs.writeFileSync('images/' + fileName, converted);
+                const converted = await heicConvert(uploadedImage);
+                fileName = makeKey() + '.jpg';
+                fs.writeFileSync('images/' + fileName, converted);
+                jpegImage = converted;
+            }
+            else
+            {
+                throw new error('Unexpected image type "' + type + '"');
+            }
+
+            // We start multiple async operations, then await them all
+            let promises = [];
+
+            // Create the thumbnail
+            const sharpImage = sharp(jpegImage);
+            const thumbFileName = makeKey() + '.jpg';
+            promises.push(createThumb(sharpImage, 'thumbs/' + thumbFileName));
+
+            // Get native image dimensions
+            let nativeWidth, nativeHeight;
+            promises.push(sharpImage
+                .metadata()
+                .then((metadata) =>
+                {
+                    nativeWidth = metadata.width;
+                    nativeHeight = metadata.height;
+                })
+            );
+
+            // Extract exif data
+            let originalDate = new Date(1900, 0);
+            let location = 'Unknown location';
+            promises.push(getExif(jpegImage)
+                .then((exifData) =>
+                {
+                    // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
+                    var dateTime = exifData.exif.DateTimeOriginal;
+                    const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+                    if (dateTimeMatches)
+                    {
+                        originalDate = new Date();
+                        originalDate.setFullYear(Number(dateTimeMatches[1]));
+                        originalDate.setMonth(Number(dateTimeMatches[2]));
+                        originalDate.setDate(Number(dateTimeMatches[3]));
+                        originalDate.setHours(Number(dateTimeMatches[4]));
+                        originalDate.setMinutes(Number(dateTimeMatches[5]));
+                        originalDate.setSeconds(Number(dateTimeMatches[6]));
+                    }
+
+                    // Extract GPS coordinates from exif, should be degrees,minutes,seconds
+                    function exifGPSCoordToDeg(exifGPSCoord)
+                    {
+                        if (exifGPSCoord && exifGPSCoord.length == 3)
+                        {
+                            const degrees = exifGPSCoord[0];
+                            const minutes = exifGPSCoord[1];
+                            const seconds = exifGPSCoord[2];
+                            return degrees + minutes / 60 + seconds / 3600;
+                        }
+                        return 0;
+                    }
+
+                    const lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
+                    const lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
+
+                    return reverseGeocode(lat, lon);
+                }, (err) => { throw new Error('Exif error: ' + err.message); })
+                .then((reverseGeocodeResult) => { location = reverseGeocodeResult; })
+            );
+
+            await Promise.all(promises);
+            if (res.writableEnded)
+            {
+                return;
+            }
+
+            // Create the gallery entry
+            galleryEntry = {
+                title: file.originalname,
+                file: fileName,
+                thumb: thumbFileName,
+                original: originalFileName,
+                width: nativeWidth,
+                height: nativeHeight,
+                date: originalDate,
+                location: location
+            };
         }
         else if (type === 'mp4' || type === 'qt')
         {
@@ -435,12 +537,12 @@ function reverseGeocode(latitude, longitude)
     // Reverse geocode to get place name, see https://nominatim.org/release-docs/latest/api/Reverse/
     // TODO we should have a language setting. Alternatively we can do the reverse geocode in the client, but
     // then there is a delay before the location appears.
-    const req = 'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lon + '&format=geocodejson';
+    const req = 'https://nominatim.openstreetmap.org/reverse?lat=' + latitude + '&lon=' + longitude + '&format=geocodejson';
     return fetch(req, { method: 'GET', headers: { 'accept-language': 'en-us' } })
         .then((res) => res.json())
         .then((json) =>
         {
-            let location = lat + ', ' + lon; // Show GPS coordinates in case of failure
+            let location = latitude + ', ' + longitude; // Show GPS coordinates in case of failure
             if (typeof json.features !== 'undefined' &&
                 Array.isArray(json.features) &&
                 json.features.length >= 1 &&
@@ -487,113 +589,6 @@ function reverseGeocode(latitude, longitude)
             // mark the entry as having a problem and have a means to retry the lookup later
             throw new Error('Location error: ' + err.message);
         })
-}
-
-async function processImage(file, type)
-{
-    var originalFileName = file.filename;
-    var fileName = file.filename;
-    var jpegImage;
-    if (type === 'jpeg')
-    {
-        // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
-        fileName = path.parse(fileName).name + '.jpg';
-        fs.renameSync('originals/' + originalFileName, 'images/' + fileName); // TODO this could probably be async
-        originalFileName = '';
-        jpegImage = uploadedImage;
-    }
-    else if (type === 'heic')
-    {
-        // Convert the heic to a jpeg
-        // const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
-        // fileName = makeKey() + '.jpg';
-        // fs.writeFileSync('images/' + fileName, converted);
-        const converted = await heicConvert(uploadedImage);
-        fileName = makeKey() + '.jpg';
-        fs.writeFileSync('images/' + fileName, converted);
-        jpegImage = converted;
-    }
-    else
-    {
-        throw new error('Unexpected image type "' + type + '"');
-    }
-
-    // We start multiple async operations, then await them all
-    let promises = [];
-
-    // Create the thumbnail
-    const sharpImage = sharp(jpegImage);
-    const thumbFileName = makeKey() + '.jpg';
-    promises.push(createThumb(sharpImage, thumbFileName));
-
-    // Get native image dimensions
-    let nativeWidth, nativeHeight;
-    promises.push(sharpImage
-        .metadata()
-        .then((metadata) =>
-        {
-            nativeWidth = metadata.width;
-            nativeHeight = metadata.height;
-        })
-    );
-
-    // Extract exif data
-    let originalDate = new Date(1900, 0);
-    let location = 'Unknown location';
-    promises.push(getExif(jpegImage)
-        .then((exifData) =>
-        {
-            // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
-            var dateTime = exifData.exif.DateTimeOriginal;
-            const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
-            if (dateTimeMatches)
-            {
-                originalDate = new Date();
-                originalDate.setFullYear(Number(dateTimeMatches[1]));
-                originalDate.setMonth(Number(dateTimeMatches[2]));
-                originalDate.setDate(Number(dateTimeMatches[3]));
-                originalDate.setHours(Number(dateTimeMatches[4]));
-                originalDate.setMinutes(Number(dateTimeMatches[5]));
-                originalDate.setSeconds(Number(dateTimeMatches[6]));
-            }
-
-            // Extract GPS coordinates from exif, should be degrees,minutes,seconds
-            function exifGPSCoordToDeg(exifGPSCoord)
-            {
-                if (exifGPSCoord && exifGPSCoord.length == 3)
-                {
-                    const degrees = exifGPSCoord[0];
-                    const minutes = exifGPSCoord[1];
-                    const seconds = exifGPSCoord[2];
-                    return degrees + minutes / 60 + seconds / 3600;
-                }
-                return 0;
-            }
-            const lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
-            const lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
-
-            return reverseGeocode(lat, lon);
-        }, (err) => { throw new Error('Exif error: ' + err.message); })
-        .then((reverseGeocodeResult) => { location = reverseGeocodeResult; })
-    );
-
-    await Promise.all(promises);
-    if (res.writableEnded)
-    {
-        return;
-    }
-
-    // Create the gallery entry
-    return {
-        title: file.originalname,
-        file: fileName,
-        thumb: thumbFileName,
-        original: originalFileName,
-        width: nativeWidth,
-        height: nativeHeight,
-        date: originalDate,
-        location: location
-    };
 }
 
 app.post('/api/bar', function (req, res)

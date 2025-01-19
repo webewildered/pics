@@ -2,6 +2,12 @@ import Point from './point.js';
 import Scroll from './scroll.js';
 
 //
+// Global parameters
+//
+var galleryKey;
+var hasMouse = true;
+
+//
 // GUI mode
 //
 
@@ -35,11 +41,6 @@ var imageMouseOrigin = new Point(); // Location where the image press began
 var imageScrollX = new Scroll(); // Image pan
 var imageScrollY = new Scroll();
 var imageScrollRangeExtension = new Point();
-
-function getGalleryKey()
-{
-    return window.location.search.substring(1);
-}
 
 function styleImage(imageElement, isEnd)
 {
@@ -124,6 +125,10 @@ function setImage(index)
         const video = image.get(0);
         video.play();
     }
+
+    // Toggle nav button visibility
+    (index == 0 || !hasMouse) ? $('#navButtonLeft').hide() : $('#navButtonLeft').show();
+    ((index == gallery.images.length - 1) || !hasMouse) ? $('#navButtonRight').hide() : $('#navButtonRight').show();
 }
 
 function clickThumb(galleryEntry)
@@ -172,7 +177,7 @@ async function upload(event)
     for (const file of files.files)
     {
         const formData = new FormData();
-        formData.append('galleryKey', getGalleryKey());
+        formData.append('galleryKey', galleryKey);
         formData.append('image', file);
         const response = await fetch('api/upload', { method: 'POST', body: formData });
         if (response.status !== 200)
@@ -213,11 +218,42 @@ function layout()
 window.onresize = layout;
 
 var gallery;
+var hasMouse = true;
 window.onload = () =>
 {
+    // Load parameters
+    const params = new URLSearchParams(window.location.search);
+    for (const key of params.keys())
+    {
+        const val = params.get(key);
+        if (val === '')
+        {
+            galleryKey = key;
+        }
+    }
+
+    // If there is no mouse, then hide mouse controls
+    const mouseSetting = params.get('mouse');
+    if (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1')
+    {
+        hasMouse = true
+    }
+    else if (mouseSetting.toLowerCase() === 'false' || mouseSetting === '0')
+    {
+        hasMouse = false;
+    }
+    else
+    {
+        const matchMedia = window.matchMedia || window.msMatchMedia;
+        if (matchMedia)
+        {
+            hasMouse = matchMedia("(pointer:fine)").matches;
+        }
+    }
+
     // Load the gallery
     const thumbs = $('#thumbs');
-    fetch('galleries/' + getGalleryKey() + '.json')
+    fetch('galleries/' + galleryKey + '.json')
         .then((response) => response.json())
         .then((json) =>
         {
