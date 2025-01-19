@@ -1,5 +1,6 @@
 import Point from './point.js';
 import Scroll from './scroll.js';
+import Feeler from './feeler.js';
 
 //
 // Global parameters
@@ -280,45 +281,88 @@ window.onload = () =>
     $('#navButtonLeft').on('click', () => onNav(-1));
     $('#navButtonRight').on('click', () => onNav(1));
 
-    // Touch input - thumbnails
-    const hammerThumbs = new Hammer.Manager($('#thumbContainer').get(0));
-    hammerThumbs.add( new Hammer.Pan({ direction: Hammer.DIRECTION_VERTICAL }) );
-    let lastDeltaY;
-    hammerThumbs.on('panstart', (event) =>
+    const thumbFeeler = new Feeler($('#thumbContainer').get(0));
+    let thumbDead = false;
+    thumbFeeler.addEventListener('start', (event) => 
     {
-        lastDeltaY = 0;
-        thumbScroll.grab();
+        if (event.touches.length)
+        {
+            event.reject();
+        }
     });
-    hammerThumbs.on('panend', (event) =>
+    thumbFeeler.addEventListener('end', (event) =>
     {
         thumbScroll.release();
-    });
-    hammerThumbs.on('panmove', (event) =>
+    })
+    thumbFeeler.addEventListener('move', (event) =>
     {
-        thumbScroll.target -= (event.deltaY - lastDeltaY);
-        lastDeltaY = event.deltaY;
-    });
+        if (thumbScroll.touch)
+        {
+            const touch = event.touches[0];
+            thumbScroll.target -= touch.pos.y - touch.last.y;
+        }
+        else
+        {
+            // Ignore delta on the first move event. Something below us on the stack implements a deadzone, so we
+            // see a big jump on the first move, which we want to skip.
+            thumbScroll.grab();
+        }
+    })
+
+    function smoothPan(hammer, direction, deadZone, onStart, onEnd, onMove)
+    {
+        hammer.add(new Hammer.Pan({ direction: direction, deadZone: deadZone }));
+        let lastDelta;
+
+        function doMove(event)
+        {
+            const delta = new Point(event.deltaX, event.deltaY);
+            const deltaDelta = delta.sub(lastDelta);
+            console.log('move ' + delta.toString() + ' / ' + deltaDelta.toString());
+            lastDelta = delta;
+            onMove(deltaDelta, event);
+        }
+        hammer.on('panmove', (event) =>
+        {
+            doMove(event);
+        });
+        hammer.on('panstart', (event) =>
+        {
+            lastDelta = new Point(
+                direction == Hammer.DIRECTION_VERTICAL ? 0 : event.deltaX,
+                direction == Hammer.DIRECTION_HORIZONTAL ? 0 : event.deltaY);
+            console.log('start ' + event.deltaX + ', ' + event.deltaY + ' / ' + lastDelta.toString());
+            const length = lastDelta.length();
+            if (length > deadZone) // should be always?
+            {
+                lastDelta = lastDelta.mul(deadZone / length).round();
+                console.log(' clip ' + lastDelta.toString());
+            }
+            onStart(event);
+            doMove(event);
+        });
+        hammer.on('panend', (event) =>
+        {
+            onEnd(event);
+        });
+    }
+
+    /*
+    // Touch input - thumbnails
+    const hammerThumbs = new Hammer.Manager($('#thumbContainer').get(0));
+    smoothPan(hammerThumbs, Hammer.DIRECTION_VERTICAL, deadZone,
+        () => thumbScroll.grab(),
+        () => thumbScroll.release(),
+        (delta) => thumbScroll.target -= delta.y);
+        */
 
     // Touch input - image
+    const deadZone = 10;
     const hammerImage = new Hammer.Manager($('#imageClick').get(0));
-    hammerImage.add( new Hammer.Pan() );
-    let lastImageDeltaX, lastImageDeltaY;
-    hammerImage.on('panstart', (event) =>
-    {
-        lastImageDeltaX = 0;
-        lastImageDeltaY = 0;
-        startImagePan();
-    });
-    hammerImage.on('panend', (event) =>
-    {
-        endImagePan();
-    });
-    hammerImage.on('panmove', (event) =>
-    {
-        moveImagePan(event.deltaX - lastImageDeltaX, event.deltaY - lastImageDeltaY);
-        lastImageDeltaX = event.deltaX;
-        lastImageDeltaY = event.deltaY;
-    });
+    smoothPan(hammerImage, Hammer.DIRECTION_ALL, deadZone,
+        () => startImagePan(),
+        () => endImagePan(),
+        (delta) => moveImagePan(delta));
 
     // Animate
     tLast = window.performance.now();
@@ -341,10 +385,10 @@ function endImagePan()
     imageScrollY.release();
 }
 
-function moveImagePan(dx, dy)
+function moveImagePan(delta)
 {
-    imageScrollX.target += dx;
-    imageScrollY.target += dy;
+    imageScrollX.target += delta.x;
+    imageScrollY.target += delta.y;
 }
 
 //
@@ -376,7 +420,7 @@ function onImageMousemove(event)
         }
         if (imageScrollX.touch)
         {
-            moveImagePan(imageMouseDelta.x, imageMouseDelta.y);
+            moveImagePan(imageMouseDelta);
             imageMouseOrigin = imageMousePos;
         }
     }
