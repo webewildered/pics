@@ -281,8 +281,8 @@ window.onload = () =>
     $('#navButtonLeft').on('click', () => onNav(-1));
     $('#navButtonRight').on('click', () => onNav(1));
 
+    // Thumbnail gallery touch scrolling
     const thumbFeeler = new Feeler($('#thumbContainer').get(0));
-    let thumbDead = false;
     thumbFeeler.addEventListener('start', (event) => 
     {
         if (event.touches.length)
@@ -293,7 +293,7 @@ window.onload = () =>
     thumbFeeler.addEventListener('end', (event) =>
     {
         thumbScroll.release();
-    })
+    });
     thumbFeeler.addEventListener('move', (event) =>
     {
         if (thumbScroll.touch)
@@ -307,62 +307,33 @@ window.onload = () =>
             // see a big jump on the first move, which we want to skip.
             thumbScroll.grab();
         }
-    })
+    });
 
-    function smoothPan(hammer, direction, deadZone, onStart, onEnd, onMove)
+    // Image touch control
+    const imageFeeler = new Feeler($('#imageClick').get(0));
+    imageFeeler.addEventListener('start', (event) => 
     {
-        hammer.add(new Hammer.Pan({ direction: direction, deadZone: deadZone }));
-        let lastDelta;
-
-        function doMove(event)
+        if (event.touches.length)
         {
-            const delta = new Point(event.deltaX, event.deltaY);
-            const deltaDelta = delta.sub(lastDelta);
-            console.log('move ' + delta.toString() + ' / ' + deltaDelta.toString());
-            lastDelta = delta;
-            onMove(deltaDelta, event);
+            event.reject();
         }
-        hammer.on('panmove', (event) =>
+    });
+    imageFeeler.addEventListener('end', (event) =>
+    {
+        endImagePan()
+    });
+    imageFeeler.addEventListener('move', (event) =>
+    {
+        if (imageScrollX.touch)
         {
-            doMove(event);
-        });
-        hammer.on('panstart', (event) =>
+            const touch = event.touches[0];
+            moveImagePan(touch.pos.sub(touch.last));
+        }
+        else
         {
-            lastDelta = new Point(
-                direction == Hammer.DIRECTION_VERTICAL ? 0 : event.deltaX,
-                direction == Hammer.DIRECTION_HORIZONTAL ? 0 : event.deltaY);
-            console.log('start ' + event.deltaX + ', ' + event.deltaY + ' / ' + lastDelta.toString());
-            const length = lastDelta.length();
-            if (length > deadZone) // should be always?
-            {
-                lastDelta = lastDelta.mul(deadZone / length).round();
-                console.log(' clip ' + lastDelta.toString());
-            }
-            onStart(event);
-            doMove(event);
-        });
-        hammer.on('panend', (event) =>
-        {
-            onEnd(event);
-        });
-    }
-
-    /*
-    // Touch input - thumbnails
-    const hammerThumbs = new Hammer.Manager($('#thumbContainer').get(0));
-    smoothPan(hammerThumbs, Hammer.DIRECTION_VERTICAL, deadZone,
-        () => thumbScroll.grab(),
-        () => thumbScroll.release(),
-        (delta) => thumbScroll.target -= delta.y);
-        */
-
-    // Touch input - image
-    const deadZone = 10;
-    const hammerImage = new Hammer.Manager($('#imageClick').get(0));
-    smoothPan(hammerImage, Hammer.DIRECTION_ALL, deadZone,
-        () => startImagePan(),
-        () => endImagePan(),
-        (delta) => moveImagePan(delta));
+            startImagePan();
+        }
+    });
 
     // Animate
     tLast = window.performance.now();
