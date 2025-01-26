@@ -6,13 +6,13 @@
     <script src="client.js?version=1" type="module"></script>
     <title>Pics</title>
 </head>
-<body style="background-color:black;margin:0;overflow:hidden;">
+<body>
     <!-- Gallery viewer -->
     <div id="galleryView">
         <!-- top bar -->
         <div id="galleryBar">
             <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
-                <input type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic,video/mp4,video/quicktime"/>
+                <input id="browseButton" type="file" id="fileInput" name="files" multiple accept="image/jpeg,image/heic,video/mp4,video/quicktime"/>
                 <button id="uploadButton">+</button>
             </form>
         </div>
@@ -40,7 +40,7 @@
         </div>
 
         <!-- top and bottom bar -->
-        <div class="imageBar imageBarTop">
+        <div class="imageBar imageBarTop" id="temptest">
             <div class="imageBarTopControl">
                 <span class="noSelect" id="backButton">&lt;</a>
             </div>
@@ -50,7 +50,7 @@
             </div>
             <div class="imageBarTopControl"></div>
         </div>
-        <div class="imageBar" style="bottom: 0;">
+        <div class="imageBar" style="bottom: 0;"  id="temptest2">
             <span style="color: white; font-size: 14pt">Thumbnail bar will go here</span>
         </div>
     </div>

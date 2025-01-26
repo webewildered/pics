@@ -36,6 +36,7 @@ export default class Feeler extends EventTarget
         
         element.addEventListener('touchstart', (event) =>
         {
+            console.log('start ' + element.id);
             for (const eventTouch of event.changedTouches)
             {
                 const touch = new FeelTouch(eventTouch.identifier, new Point(eventTouch.clientX, eventTouch.clientY));
@@ -51,6 +52,7 @@ export default class Feeler extends EventTarget
 
         element.addEventListener('touchend', (event) =>
         {
+            console.log('end ' + element.id);
             for (const eventTouch of event.changedTouches)
             {
                 let touchIndex = this.getTouchIndex(eventTouch);
@@ -102,5 +104,52 @@ export default class Feeler extends EventTarget
     {
         let touchIndex = this.getTouchIndex(eventTouch);
         return (touchIndex >= 0) ? this.touches[touchIndex] : null;
+    }
+
+    //
+    // Simple reusable input types
+    //
+
+    // Disable touch input
+    static disable(element)
+    {
+        new Feeler(element).addEventListener('start', (event) =>
+        {
+            event.reject();
+        });
+    }
+
+    // Calls callback whenever the element is tapped or clicked
+    static tap(element, callback, withClick = false)
+    {
+        // Click
+        if (withClick)
+        {
+            element.onclick = callback;
+        }
+
+        // Tap
+        const feeler = new Feeler(element);
+        let down = false;
+        feeler.addEventListener('start', (event) =>
+        {
+            if (event.touches.length)
+            {
+                down = false;
+                event.reject();
+            }
+            else
+            {
+                down = true;
+            }
+        });
+        feeler.addEventListener('end', (event) =>
+        {
+            if (down)
+            {
+                callback(event);
+            }
+        });
+        feeler.addEventListener('move', () => down = false);
     }
 }

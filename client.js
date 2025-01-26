@@ -273,12 +273,21 @@ window.onload = () =>
     layout();
 
     // Handle input events
-    $('#uploadButton').on('click', upload);
-    $('#backButton').on('click', clickBackButton);
+    Feeler.tap($('#uploadButton').get(0), upload);
+    Feeler.tap($('#backButton').get(0), clickBackButton);
+    Feeler.tap($('#navButtonLeft').get(0), () => onNav(-1));
+    Feeler.tap($('#navButtonRight').get(0), () => onNav(1));
     $('#imageClick').on('mousedown', onImageMousedown);
     $('#imageClick').on('mousemove', onImageMousemove);
-    $('#navButtonLeft').on('click', () => onNav(-1));
-    $('#navButtonRight').on('click', () => onNav(1));
+    
+    // Forward taps on the browse button to its click handler
+    Feeler.tap($('#browseButton').get(0), () => { $('#browseButton').click(); }, false);
+
+    // Disable touch on elements that don't otherwise have touch control.
+    // This prevents accidentally changing the browser zoom while pinch zooming an image.
+    const disableTouch = (jqElem) => jqElem.each((idx, elem) => Feeler.disable(elem));
+    disableTouch($('#galleryBar'));
+    disableTouch($('.imageBar'));
 
     // Thumbnail gallery touch scrolling
     const thumbFeeler = new Feeler($('#thumbContainer').get(0));
@@ -287,6 +296,7 @@ window.onload = () =>
         if (event.touches.length)
         {
             event.reject();
+            console.log('  reject2')
         }
     });
     thumbFeeler.addEventListener('end', (event) =>
@@ -335,6 +345,7 @@ window.onload = () =>
         else if (event.touches.length == 2)
         {
             event.reject();
+            console.log('  reject3')
         }
     });
     imageFeeler.addEventListener('end', (event) =>
