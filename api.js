@@ -250,7 +250,7 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         // going to load the whole thing anyway, but it probably does matter for video, which can be huge and which will be processed
         // by ffmpeg rather than js code.
         const file = req.file;
-        const originalFileName = file.filename;
+        let originalFileName = file.filename;
         const originalPath = 'originals/' + originalFileName;
         cleanup.push(originalPath);
         const uploadedImage = fs.readFileSync(originalPath);

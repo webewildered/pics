@@ -120,12 +120,15 @@ export default class Feeler extends EventTarget
     }
 
     // Calls callback whenever the element is tapped or clicked
-    static tap(element, callback, withClick = false)
+    static tap(element, callback, withClick = true)
     {
         // Click
         if (withClick)
         {
-            element.onclick = callback;
+            element.onclick = (event) =>
+            {
+                callback(event);
+            }
         }
 
         // Tap

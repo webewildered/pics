@@ -41,6 +41,8 @@ var imageMouseOrigin = new Point(); // Location where the image press began
 var imageScrollX = new Scroll(); // Image pan
 var imageScrollY = new Scroll();
 var imageScrollZ = new Scroll(); // Image zoom
+imageScrollZ.boundStiffness = 0.8;
+imageScrollZ.debug = true;
 var imageScrollRangeExtension = new Point();
 
 function styleImage(imageElement, isEnd)
@@ -280,8 +282,8 @@ window.onload = () =>
     $('#imageClick').on('mousedown', onImageMousedown);
     $('#imageClick').on('mousemove', onImageMousemove);
     
-    // Forward taps on the browse button to its click handler
-    Feeler.tap($('#browseButton').get(0), () => { $('#browseButton').click(); }, false);
+    // Forward taps on the browse button to its click handler. Don't override the click handler itself.
+    Feeler.tap($('#fileInput').get(0), () => { $('#fileInput').click(); }, false);
 
     // Disable touch on elements that don't otherwise have touch control.
     // This prevents accidentally changing the browser zoom while pinch zooming an image.
@@ -296,7 +298,6 @@ window.onload = () =>
         if (event.touches.length)
         {
             event.reject();
-            console.log('  reject2')
         }
     });
     thumbFeeler.addEventListener('end', (event) =>
@@ -345,18 +346,29 @@ window.onload = () =>
         else if (event.touches.length == 2)
         {
             event.reject();
-            console.log('  reject3')
         }
     });
     imageFeeler.addEventListener('end', (event) =>
     {
         if (event.touches.length == 1)
         {
-            endImagePan()
+            if (imageScrollX.touch)
+            {
+                // Release pan
+                endImagePan();
+            }
+            else
+            {
+                // Release tap
+                showImageBar(!enableImageControls, false); // toggle image bar with fade
+            }
         }
         else if (event.touches.length == 2)
         {
             imageScrollZ.release();
+            imageScrollX.v = 0;
+            imageScrollY.v = 0;
+            imageScrollZ.v = 0; // no momentum
         }
     });
     imageFeeler.addEventListener('move', (event) =>
@@ -385,17 +397,6 @@ window.onload = () =>
             const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
             imageScrollZ.target += Math.log(scale);
             setZoomCenter(center);
-
-            // const imageOffset = image.offset();
-            // const scaleMovement = center.sub(new Point(imageOffset.left, imageOffset.top)).mul(scale - 1);
-            // console.log('m ' + movement.toString() + ' s ' + scaleMovement.toString());
-
-            // // Find the mouse position in image space
-            // const imageOffset = image.offset();
-            // zoomCenter = center.sub(new Point(imageOffset.left, imageOffset.top))
-            //     .div(zoom) // Relative to topleft corner
-            //     .max(0).min(nativeSize) // Clamped to image
-            //     .sub(nativeSize.div(2)); // Relative to image center
         }
     });
 
@@ -511,7 +512,6 @@ onwheel = (event) =>
             imageScrollZ.animate = true;
             if (imageScrollZ.target == zoomMin && oldZoomTarget != zoomMin)
             {
-                showImageBar(true, false); // fade image bar in
                 $('.navButton').css({width:'30%'}); // Big navigation buttons
             }
             else if (oldZoomTarget == zoomMin && imageScrollZ.target != zoomMin)
@@ -524,14 +524,6 @@ onwheel = (event) =>
             const imageOffset = image.offset();
             setZoomCenter(new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top));
     }
-
-    // TODO maybe need to handle other modes:
-    // switch (event.deltaMode)
-    // {
-    //     case WheelEvent.DOM_DELTA_PIXEL: window.scrollBy(0, event.deltaY); break;
-    //     case WheelEvent.DOM_DELTA_LINE: window.scrollByLines(0, event.deltaY); break;
-    //     case WheelEvent.DOM_DELTA_PAGE: window.scrollByPages(0, event.deltaY); break;
-    // }
 }
 
 //
@@ -685,7 +677,7 @@ function updateImage(dt)
         imageScrollZ.update(dt, zoomMin, zoomMax);
         const zoomScale = getZoomScale();
 
-        if (imageScrollZ.target == zoomMin)
+        if (imageScrollZ.target <= zoomMin && !imageScrollZ.touch)
         {
             // Reset scroll range extension and recenter
             imageScrollRangeExtension = new Point();

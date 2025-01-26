@@ -4,10 +4,17 @@ export default class Scroll
     constructor()
     {
         this.reset();
+
+        // Touch physics settings
+        this.momentum = 0.1; // Rate of velocity decay in bounds after touch release
+        this.boundStiffness = 0.9; // 0 to 1, how strong the bounds pull while grabbed
+        this.angularFrequency = 10; // Angular frequency of the bounds spring after touch release (damping ratio = 1)
+        this.debug = false;
     }
 
     reset(x = 0)
     {
+        // State
         this.x = x;
         this.v = 0;
         this.target = x;
@@ -50,7 +57,8 @@ export default class Scroll
                 let x2 = this.target;
                 if (overScroll != 0)
                 {
-                    x2 = x2 - overScroll + Math.pow(Math.abs(overScroll), 0.7) * Math.sign(overScroll);
+                    const boundStiffness = Math.max(0, Math.min(1, this.boundStiffness));
+                    x2 = x2 - overScroll * boundStiffness;
                 }
                 this.v = (x2 - this.x) / dt;
                 this.x = x2;
@@ -62,12 +70,12 @@ export default class Scroll
                 if (overScroll == 0)
                 {
                     // Within bounds, damp velocity
-                    this.v *= Math.pow(0.1, dt);
+                    this.v *= Math.pow(this.momentum, dt);
                 }
                 else
                 {
                     // Out of bounds, pull toward the bounds with a critically damped spring
-                    const w = 10; // angular frequency
+                    const w = this.angularFrequency;
                     this.v = (this.v - dt * w * w * overScroll) / (1 + 2 * dt * w + dt * dt * w * w); // implicit integration
                 }
 
