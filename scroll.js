@@ -6,11 +6,11 @@ export default class Scroll
         this.reset();
     }
 
-    reset()
+    reset(x = 0)
     {
-        this.x = 0;
+        this.x = x;
         this.v = 0;
-        this.target = 0;
+        this.target = x;
         this.animate = false;
         this.touch = false;
     }
