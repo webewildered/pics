@@ -31,10 +31,11 @@ var thumbScroll = new Scroll(); // Gallery vertical scroll
 // Image viewer
 //
 
+const numNeighborImages = 1; // Number of image/video elements to each side of the active one.
+const numTotalImages = numNeighborImages * 2 + 1;
+var images = []; // List of image/video elements in order from left to right. Active one is in the middle of the array.
 var zoomCenter = new Point(); // Point in image space to zoom about, relative to the center of the image
-var zoomMin = 0;
-var zoomMax = Math.log(4);
-var nativeSize = new Point();
+const maxZoom = Math.log(4);
 var enableImageControls = true; // Whether to show the top and bottom bars over the image
 var imagePressed = false; // true if the image has been clicked/touched and not yet released
 var imageMouseOrigin = new Point(); // Location where the image press began
@@ -77,31 +78,15 @@ function addImage(galleryEntry)
     styleImage(image, isEnd);
 }
 
-var image;
-var imageIndex;
-function setImage(index)
+function createImage(index)
 {
-    const oldImage = image;
     const galleryEntry = gallery.images[index];
-    imageIndex = index;
-
-    // Calculate the initial zoom
-    nativeSize = new Point(galleryEntry.width, galleryEntry.height)
-    zoomMin = Math.log(Math.min(1, window.innerWidth / nativeSize.x, window.innerHeight / nativeSize.y));
-    imageScrollZ.reset(zoomMin);
-    imageScrollX.reset();
-    imageScrollY.reset();
-    
-    const date = new Date(galleryEntry.date);
-    const format = new Intl.DateTimeFormat();
-    format.dateStyle = 'full';
-    $('#time').text(date.toLocaleString(format));
-    $('#location').text(galleryEntry.location);
     const sourcePath = 'images/' + galleryEntry.file;
     const isVideo = galleryEntry.file.endsWith('.mp4');
+    let image;
     if (isVideo)
     {
-        image = $('<video>');//.attr('controls', '');
+        image = $('<video>');
         $('<source>').attr('src', sourcePath).appendTo(image);
     }
     else
@@ -113,45 +98,139 @@ function setImage(index)
     image
         .addClass('mainImage')
         .addClass('noSelect')
-        .on('load', () =>
-        {
-            // Clear existing image
-            if (oldImage)
-            {
-                oldImage.remove();
-            }
-        });
-    updateImageTransform();
     image.appendTo('#imageView');
-    if (isVideo)
+
+    // Attach the gallery entry to the image
+    image.get(0).galleryIndex = index;
+    return image;
+}
+
+function updateActiveImage()
+{
+    // Get the current active image
+    const image = images[numNeighborImages];
+    const galleryEntry = gallery.images[image.get(0).galleryIndex];
+
+    // Update the metadata
+    const date = new Date(galleryEntry.date);
+    const format = new Intl.DateTimeFormat();
+    format.dateStyle = 'full';
+    $('#time').text(date.toLocaleString(format));
+    $('#location').text(galleryEntry.location);
+
+    // Play video
+    console.log(image.prop('nodeName'));
+    if (image.prop('nodeName') === 'video')
     {
         const video = image.get(0);
         video.play();
     }
 
     // Toggle nav button visibility
-    (index == 0 || !hasMouse) ? $('#navButtonLeft').hide() : $('#navButtonLeft').show();
-    ((index == gallery.images.length - 1) || !hasMouse) ? $('#navButtonRight').hide() : $('#navButtonRight').show();
+    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').hide() : $('#navButtonLeft').show();
+    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').hide() : $('#navButtonRight').show();
+
+    // Reset zoom state
+    imageScrollZ.reset(getMinZoom(image));
 }
 
 function clickThumb(galleryEntry)
 {
     fade($('#imageView'), true, 0.1);
 
-    setImage(galleryEntry.index);
+    // Create the images
+    images = [];
+    for (let i = -numNeighborImages; i <= numNeighborImages; i++)
+    {
+        const index = galleryEntry.index + i;
+        if (index < 0 || index >= gallery.images.length)
+        {
+            images.push(null);
+        }
+        else
+        {
+            images.push(createImage(index));
+        }
+    }
+    
+    // Reset scroll state
+    imageScrollX.reset();
+    imageScrollY.reset();
+    
+    updateActiveImage();
     
     focus = imageMode;
     enableImageControls = true;
     showImageBar(true, true); // show image bar immediate
 }
 
+function clickBackButton()
+{
+    // Remove all images
+    if (images.length)
+    {
+        for (const image of images)
+        {
+            if (image !== null)
+            {
+                image.remove();
+            }
+        }
+        images = [];
+        fade($('#imageView'), false, 0.1);
+        focus = galleryMode;
+    }
+}
+
 function onNav(direction)
 {
-    let newIndex = Math.min(Math.max(imageIndex + direction, 0), gallery.images.length);
-    if (newIndex != imageIndex)
+    if (direction !== 1 && direction !== -1)
     {
-        setImage(newIndex);
+        throw new Error('Invalid navigation direction ' + direction);
     }
+
+    if (images[numNeighborImages + direction] === null)
+    {
+        // Already on the first or last image
+        return;
+    }
+
+    // Create the new image
+    const currentIndex = getActiveImage().get(0).galleryIndex;
+    const newIndex = currentIndex + direction * (numNeighborImages + 1);
+    let newImage = null;
+    if (newIndex >= 0 && newIndex < gallery.images.length)
+    {
+        newImage = createImage(newIndex);
+    }
+
+    // Shift it into the array
+    let oldImage;
+    if (direction > 0)
+    {
+        // Remove at beginning, insert at end
+        oldImage = images[0];
+        images.splice(0, 1);
+        images.push(newImage);
+    }
+    else
+    {
+        // Remove at end, insert at beginning
+        oldImage = images.pop();
+        images.splice(0, 0, newImage);
+    }
+
+    // Remove any old image shifted out of the array
+    if (oldImage !== null)
+    {
+        oldImage.remove();
+    }
+
+    // Shift scroll
+    imageScrollX.x += direction * getClientSize().x;
+
+    // Display
+    updateActiveImage();
 }
 
 function showImageBar(show, immediate)
@@ -159,18 +238,6 @@ function showImageBar(show, immediate)
     enableImageControls = show;
     fade($('.imageBar'), enableImageControls, immediate ? 0 : 0.1);
 }
-
-function clickBackButton()
-{
-    if (image)
-    {
-        image.remove();
-        image = null;
-        fade($('#imageView'), false, 0.1);
-        focus = galleryMode;
-    }
-}
-
 async function upload(event)
 {
     event.preventDefault();
@@ -476,21 +543,6 @@ onmouseup = (event) =>
     }
 }
 
-function getZoomScale()
-{
-    return Math.pow(Math.E, imageScrollZ.x);
-}
-
-function setZoomCenter(clientPos)
-{
-    const imageOffset = image.offset();
-    zoomCenter = clientPos
-        .sub(new Point(imageOffset.left, imageOffset.top)) // Relative to topleft corner
-        .div(getZoomScale()) // In native scale
-        .max(0).min(nativeSize) // Clamped to image
-        .sub(nativeSize.div(2)); // Relative to image center
-}
-
 onwheel = (event) =>
 {
     let deltaPx = event.deltaY;
@@ -508,21 +560,22 @@ onwheel = (event) =>
         case imageMode:
             const zoomRate = 0.001;
             const oldZoomTarget = imageScrollZ.target;
-            imageScrollZ.target = Math.max(zoomMin, Math.min(zoomMax, oldZoomTarget - deltaPx * zoomRate));
+            const minZoom = getMinZoom(getActiveImage());
+            imageScrollZ.target = Math.max(minZoom, Math.min(maxZoom, oldZoomTarget - deltaPx * zoomRate));
             imageScrollZ.animate = true;
-            if (imageScrollZ.target == zoomMin && oldZoomTarget != zoomMin)
+            if (imageScrollZ.target == minZoom && oldZoomTarget != minZoom)
             {
                 $('.navButton').css({width:'30%'}); // Big navigation buttons
             }
-            else if (oldZoomTarget == zoomMin && imageScrollZ.target != zoomMin)
+            else if (oldZoomTarget == minZoom && imageScrollZ.target != minZoom)
             {
                 showImageBar(false, false); // fade image bar out
                 $('.navButton').css({width:'10%'}); // Small navigation buttons
             }
 
             // Find the mouse position in image space
-            const imageOffset = image.offset();
-            setZoomCenter(new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top));
+            const imageOffset = getActiveImage().offset();
+            setZoomCenter(new Point(event.clientX, event.clientY));
     }
 }
 
@@ -636,99 +689,149 @@ function updateThumbs(dt)
     thumbs.css({position: 'relative', top: -thumbScroll.x});
 }
 
-function clientSize() { return new Point(window.innerWidth, window.innerHeight); }
-function imageSize() { return nativeSize.mul(getZoomScale()); }
-
-function updateImageTransform()
+function getClientSize() { return new Point(window.innerWidth, window.innerHeight); }
+function getGalleryEntry(image) { return gallery.images[image.get(0).galleryIndex]; }
+function getActiveImage() { return images[numNeighborImages]; }
+function getNativeSize(image)
 {
-    const scaledSize = imageSize();
-    const scaledPosition = clientSize().sub(scaledSize).div(2).add(new Point(imageScrollX.x, imageScrollY.x))
-    image.css(
-    {
-        'width': scaledSize.x,
-        'height': scaledSize.y,
-        'left': scaledPosition.x,
-        'top': scaledPosition.y
-    });
+    const entry = getGalleryEntry(image);
+    return new Point(entry.width, entry.height);
+}
+function getZoomScale() { return Math.pow(Math.E, imageScrollZ.x); }
+function getMinZoomScale(image)
+{
+    const scaleXY = getClientSize().div(getNativeSize(image));
+    return Math.min(scaleXY.x, scaleXY.y, 1);
+}
+function getMinZoom(image) { return Math.log(getMinZoomScale(image)); }
+function getScaledSize(image, zoomed)
+{
+    const nativeSize = getNativeSize(image);
+    let scale = zoomed ? getZoomScale() : getMinZoomScale(image);
+    return nativeSize.mul(scale);
+}
+
+function setZoomCenter(clientPos)
+{
+    const image = getActiveImage();
+    const imageOffset = image.offset();
+    const nativeSize = getNativeSize(image);
+    zoomCenter = clientPos
+        .sub(new Point(imageOffset.left, imageOffset.top)) // Relative to topleft corner
+        .div(getZoomScale()) // In native scale
+        .max(0).min(nativeSize) // Clamped to image
+        .sub(nativeSize.div(2)); // Relative to image center
 }
 
 function updateImage(dt)
 {
-    if (image)
+    if (images.length == 0)
     {
-        // Calculate the scroll range - the minimum necessary to be able to see the whole image by scrolling, plus any extra specified by
-        // imageScrollRangeExtension (positive values extend max, negative values extend min)
-        let scrollRange, scrollMin, scrollMax;
-        function calcScrollRange()
-        {
-            scrollRange = imageSize().sub(clientSize()).max(0).div(2);
-            scrollMax = scrollRange.add(imageScrollRangeExtension.max(0));
-            scrollMin = scrollRange.neg().add(imageScrollRangeExtension.min(0));
-        }
+        return;
+    }
+    
+    const image = getActiveImage();
+    
+    // Calculate the scroll range - the minimum necessary to be able to see the whole image by scrolling, plus any extra specified by
+    // imageScrollRangeExtension (positive values extend max, negative values extend min)
+    let scrollRange, scrollMin, scrollMax;
+    function calcScrollRange()
+    {
+        const imageSize = getScaledSize(image, true);
+        scrollRange = imageSize.sub(getClientSize()).max(0).div(2);
+        scrollMax = scrollRange.add(imageScrollRangeExtension.max(0));
+        scrollMin = scrollRange.neg().add(imageScrollRangeExtension.min(0));
+    }
 
-        // Calculate current excess of the scroll range
+    // Calculate current excess of the scroll range
+    calcScrollRange();
+    const scroll = new Point(imageScrollX.x, imageScrollY.x);
+    const overMax = scroll.sub(scrollMax).max(0);
+    const underMin = scroll.sub(scrollMin).min(0);
+    
+    // Animate zoom
+    const oldZoomScale = getZoomScale();
+    const minZoom = getMinZoom(image);
+    imageScrollZ.update(dt, minZoom, maxZoom);
+    const zoomScale = getZoomScale();
+
+    if (imageScrollZ.target <= minZoom && !imageScrollZ.touch)
+    {
+        // Reset scroll range extension and recenter
+        imageScrollRangeExtension = new Point();
+        scrollRange = new Point();
+        scrollMin = new Point();
+        scrollMax = new Point();
+    }
+    else
+    {
+        // Recalculate the scroll range at the new zoom
         calcScrollRange();
-        const scroll = new Point(imageScrollX.x, imageScrollY.x);
-        const overMax = scroll.sub(scrollMax).max(0);
-        const underMin = scroll.sub(scrollMin).min(0);
-        
-        // Animate zoom
-        const oldZoomScale = getZoomScale();
-        imageScrollZ.update(dt, zoomMin, zoomMax);
-        const zoomScale = getZoomScale();
 
-        if (imageScrollZ.target <= zoomMin && !imageScrollZ.touch)
+        // Shift the image position to maintain the position of the zoomCenter in screen space
+        const zoomShift = zoomCenter.mul(oldZoomScale - zoomScale);
+        const newScroll = scroll.add(zoomShift);
+        const newOverMax = newScroll.sub(scrollMax).max(0);
+        const newUnderMin = newScroll.sub(scrollMin).min(0);
+
+        // Calculate whether the zoom shift pushes beyond the scroll range and by how much.
+        // If it does, extend the range so that it does not push back from the shift.
+        const newScrollRangeExtension = 
+            newOverMax.sub(overMax).max(0)
+            .add(newUnderMin.sub(underMin).min(0));
+        imageScrollRangeExtension = imageScrollRangeExtension.binary(newScrollRangeExtension, (a, b) =>
         {
-            // Reset scroll range extension and recenter
-            imageScrollRangeExtension = new Point();
-            scrollRange = new Point();
-            scrollMin = new Point();
-            scrollMax = new Point();
-        }
-        else
-        {
-            // Recalculate the scroll range at the new zoom
-            calcScrollRange();
-
-            // Shift the image position to maintain the position of the zoomCenter in screen space
-            const zoomShift = zoomCenter.mul(oldZoomScale - zoomScale);
-            const newScroll = scroll.add(zoomShift);
-            const newOverMax = newScroll.sub(scrollMax).max(0);
-            const newUnderMin = newScroll.sub(scrollMin).min(0);
-
-            // Calculate whether the zoom shift pushes beyond the scroll range and by how much.
-            // If it does, extend the range so that it does not push back from the shift.
-            const newScrollRangeExtension = 
-                newOverMax.sub(overMax).max(0)
-                .add(newUnderMin.sub(underMin).min(0));
-            imageScrollRangeExtension = imageScrollRangeExtension.binary(newScrollRangeExtension, (a, b) =>
+            if (Math.abs(b) < 1e-5)
             {
-                if (Math.abs(b) < 1e-5)
-                {
-                    return a; // Ignore tiny changes, can get b==0 or maybe an opposite-signed value from numerical error
-                }
-                return Math.sign(a) == Math.sign(b) ? a + b : b;
-            });
+                return a; // Ignore tiny changes, can get b==0 or maybe an opposite-signed value from numerical error
+            }
+            return Math.sign(a) == Math.sign(b) ? a + b : b;
+        });
 
-            // If scrolled back towards the natural range, reduce the extension
-            imageScrollRangeExtension = imageScrollRangeExtension
-                .min(newScroll.sub(scrollRange).max(0))
-                .max(newScroll.sub(scrollRange.neg()).min(0));
+        // If scrolled back towards the natural range, reduce the extension
+        imageScrollRangeExtension = imageScrollRangeExtension
+            .min(newScroll.sub(scrollRange).max(0))
+            .max(newScroll.sub(scrollRange.neg()).min(0));
 
-            // Apply the shift
-            imageScrollX.x += zoomShift.x;
-            imageScrollX.target += zoomShift.x;
-            imageScrollY.x += zoomShift.y;
-            imageScrollY.target += zoomShift.y;
-            
-            calcScrollRange(); // Recalculate the range
+        // Apply the shift
+        imageScrollX.x += zoomShift.x;
+        imageScrollX.target += zoomShift.x;
+        imageScrollY.x += zoomShift.y;
+        imageScrollY.target += zoomShift.y;
+        
+        calcScrollRange(); // Recalculate the range
+    }
+
+    // Animate scroll
+    imageScrollX.update(dt, scrollMin.x, scrollMax.x);
+    imageScrollY.update(dt, scrollMin.y, scrollMax.y);
+
+    const imageScroll = new Point(imageScrollX.x, imageScrollY.x);
+    const neighborShift = new Point(getClientSize().x, 0);
+    for (let i = 0; i < numTotalImages; i++)
+    {
+        const image = images[i];
+        if (image === null)
+        {
+            continue;
         }
+        const galleryEntry = gallery.images[image.get(0).galleryIndex];
+        const offset = i - numNeighborImages;
+        
+        const scaledSize = getScaledSize(image, offset == 0);
 
-        // Animate scroll
-        imageScrollX.update(dt, scrollMin.x, scrollMax.x);
-        imageScrollY.update(dt, scrollMin.y, scrollMax.y);
+        const position = getClientSize()
+            .sub(scaledSize).div(2) // Center
+            .add(imageScroll) // Apply scroll
+            .add(neighborShift.mul(offset)); // Shift neighbor images by screen widths
 
-        updateImageTransform();
+        image.css(
+        {
+            'width': scaledSize.x,
+            'height': scaledSize.y,
+            'left': position.x,
+            'top': position.y
+        });
     }
 }
 
