@@ -25,5 +25,11 @@
             "url": "http://localhost/test.html",
             "runtimeArgs": ["--incognito"]
         },
+        {
+            "type": "firefox",
+            "request": "launch",
+            "name": "FF Gallery",
+            "url": "http://localhost/index.html?6nobzpv3lgsa9forjgcf"
+        },
     ]
 }

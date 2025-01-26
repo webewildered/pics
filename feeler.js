@@ -46,6 +46,7 @@ export default class Feeler extends EventTarget
                     this.touches.push(touch);
                 }
             }
+            event.preventDefault();
         });
 
         element.addEventListener('touchend', (event) =>
@@ -59,6 +60,7 @@ export default class Feeler extends EventTarget
                     this.touches.splice(touchIndex, 1);
                 }
             }
+            event.preventDefault();
         });
         
         element.addEventListener('touchmove', (event) =>
@@ -76,6 +78,7 @@ export default class Feeler extends EventTarget
                 }
             }
             this.dispatchEvent(new FeelEvent('move', this.touches));
+            event.preventDefault();
         });
     }
 

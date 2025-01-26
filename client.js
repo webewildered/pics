@@ -69,6 +69,7 @@ function addImage(galleryEntry)
         .attr('draggable', false)
         .addClass('noSelect')
         .appendTo(thumbs);
+    image.get(0).galleryEntry = galleryEntry;
     image.on('click', () => clickThumb(galleryEntry));
     const isEnd = ($('#thumbs').children().length % thumbPitch) == 0;
     styleImage(image, isEnd);
@@ -277,7 +278,6 @@ window.onload = () =>
     $('#backButton').on('click', clickBackButton);
     $('#imageClick').on('mousedown', onImageMousedown);
     $('#imageClick').on('mousemove', onImageMousemove);
-    $('#imageClick').on('mouseup', onImageMouseup);
     $('#navButtonLeft').on('click', () => onNav(-1));
     $('#navButtonRight').on('click', () => onNav(1));
 
@@ -292,7 +292,18 @@ window.onload = () =>
     });
     thumbFeeler.addEventListener('end', (event) =>
     {
-        thumbScroll.release();
+        if (thumbScroll.touch)
+        {
+            thumbScroll.release();
+        }
+        else
+        {
+            const thumb = document.elementFromPoint(event.touches[0].pos.x, event.touches[0].pos.y);
+            if (thumb.classList.contains('thumb') || thumb.classList.contains('thumb-end'))
+            {
+                clickThumb(thumb.galleryEntry)
+            }
+        }
     });
     thumbFeeler.addEventListener('move', (event) =>
     {
@@ -356,8 +367,11 @@ window.onload = () =>
             const movement = center.sub(lastCenter);
 
             const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
+            zoomTarget *= scale;
             const imageOffset = image.offset();
             const scaleMovement = center.sub(new Point(imageOffset.left, imageOffset.top)).mul(scale - 1);
+            
+            console.log('m ' + movement.toString() + ' s ' + scaleMovement.toString());
             
             moveImagePan(movement.sub(scaleMovement));
 
@@ -432,7 +446,7 @@ function onImageMousemove(event)
     }
 }
 
-function onImageMouseup()
+onmouseup = (event) =>
 {
     if (imagePressed)
     {
@@ -448,40 +462,40 @@ function onImageMouseup()
 
 onwheel = (event) =>
 {
+    let deltaPx = event.deltaY;
+    switch (event.deltaMode)
+    {
+        case WheelEvent.DOM_DELTA_LINE: deltaPx *= 15; break;
+        case WheelEvent.DOM_DELTA_PAGE: deltaPx *= 100; break;
+    }
     switch (focus)
     {
         case galleryMode:
             thumbScroll.animate = true;
-            if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL)
-            {
-                thumbScroll.target += event.deltaY;
-            }
+            thumbScroll.target += deltaPx;
             break;
         case imageMode:
-            if (event.deltaMode === WheelEvent.DOM_DELTA_PIXEL)
+            const zoomRate = 1.001;
+            const zoomDelta = Math.pow(zoomRate, -deltaPx);
+            const oldZoomTarget = zoomTarget;
+            zoomTarget = Math.max(zoomMin, Math.min(4.0, zoomTarget * zoomDelta));
+            if (zoomTarget == zoomMin && oldZoomTarget != zoomMin)
             {
-                const zoomRate = 1.001;
-                const zoomDelta = Math.pow(zoomRate, -event.deltaY);
-                const oldZoomTarget = zoomTarget;
-                zoomTarget = Math.max(zoomMin, Math.min(4.0, zoomTarget * zoomDelta));
-                if (zoomTarget == zoomMin && oldZoomTarget != zoomMin)
-                {
-                    showImageBar(true, false); // fade image bar in
-                    $('.navButton').css({width:'30%'}); // Big navigation buttons
-                }
-                else if (oldZoomTarget == zoomMin && zoomTarget != zoomMin)
-                {
-                    showImageBar(false, false); // fade image bar out
-                    $('.navButton').css({width:'10%'}); // Small navigation buttons
-                }
-
-                // Find the mouse position in image space
-                const imageOffset = image.offset();
-                zoomCenter = new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top)
-                    .div(zoom) // Relative to topleft corner
-                    .max(0).min(nativeSize) // Clamped to image
-                    .sub(nativeSize.div(2)); // Relative to image center
+                showImageBar(true, false); // fade image bar in
+                $('.navButton').css({width:'30%'}); // Big navigation buttons
             }
+            else if (oldZoomTarget == zoomMin && zoomTarget != zoomMin)
+            {
+                showImageBar(false, false); // fade image bar out
+                $('.navButton').css({width:'10%'}); // Small navigation buttons
+            }
+
+            // Find the mouse position in image space
+            const imageOffset = image.offset();
+            zoomCenter = new Point(event.clientX - imageOffset.left, event.clientY - imageOffset.top)
+                .div(zoom) // Relative to topleft corner
+                .max(0).min(nativeSize) // Clamped to image
+                .sub(nativeSize.div(2)); // Relative to image center
     }
 
     // TODO maybe need to handle other modes:
