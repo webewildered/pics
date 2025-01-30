@@ -88,41 +88,38 @@ function makeKey()
 }
 
 // Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath)
+// TODO lock the admin file
 function adminOp(req, res, op)
 {
     try
     {
-        const { headers } = req;
-        if (headers['content-type'] == 'application/json')
+        // Read the request data into body
+        let body = [];
+        req.on('data', (chunk) =>
         {
-            // Read the request data into body
-            let body = [];
-            req.on('data', (chunk) =>
-            {
-                body.push(chunk);
-            }).on('end', () =>
-            {
-                body = Buffer.concat(body).toString();
+            body.push(chunk);
+        }).on('end', () =>
+        {
+            body = Buffer.concat(body).toString();
 
-                // Read the admin file to validate the key
-                const requestJson = JSON.parse(body);
-                const adminKey = requestJson.adminKey;
-                const adminPath = 'admin/' + adminKey + '.json';
-                fs.readFile(adminPath, (err, data) =>
+            // Read the admin file to validate the key
+            const requestJson = JSON.parse(body);
+            const adminKey = requestJson.adminKey;
+            const adminPath = 'admin/' + adminKey + '.json';
+            fs.readFile(adminPath, (err, data) =>
+            {
+                if (err)
                 {
-                    if (err)
-                    {
-                        throw err;
-                    }
+                    throw err;
+                }
 
-                    adminJson = JSON.parse(data);
-                    if (adminJson.type === 'admin')
-                    {
-                        op(requestJson, res, adminJson, adminPath);
-                    }
-                });
+                adminJson = JSON.parse(data);
+                if (adminJson.type === 'admin')
+                {
+                    op(requestJson, res, adminJson, adminPath);
+                }
             });
-        }
+        });
     }
     catch (err)
     {
@@ -140,6 +137,7 @@ app.post('/api/createGallery', function (req, res)
     adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
     {
         // Create the gallery
+        const writeKey = makeKey();
         const galleryKey = makeKey();
         let gallery = {};
         gallery.name = requestJson.name;
@@ -147,7 +145,8 @@ app.post('/api/createGallery', function (req, res)
         fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery), () =>
         {
             // Add the gallery to the list
-            adminJson.galleries.push(galleryKey);
+            const gallery = {galleryKey: galleryKey, writeKey: writeKey};
+            adminJson.galleries.push(gallery);
             fs.writeFile(adminPath, JSON.stringify(adminJson), (err) =>
             {
                 if (err)
@@ -155,9 +154,14 @@ app.post('/api/createGallery', function (req, res)
                     throw err;
                 }
 
-                // Return the gallery key to the client
-                res.writeHead(200, { 'Content-Type': 'text/plain' });
-                res.end(galleryKey);
+                // Add the write permission file
+                const writePath = 'galleries/' + writeKey + '.json';
+                fs.writeFile(writePath, JSON.stringify({galleryKey: galleryKey}), () =>
+                {
+                    // Return the gallery key to the client
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify(gallery));
+                });
             });
         });
     });
@@ -189,13 +193,21 @@ app.post('/api/deleteGallery', function (req, res)
                 }
 
                 // Remove the gallery from the list
-                const index = adminJson.galleries.indexOf(galleryKey);
-                if (index < 0)
+                let removeIndex = -1;
+                for (let index = 0; index < adminJson.galleries.length; index++)
                 {
-                    fail('gallery was not in the admin list');
+                    if (adminJson.galleries[index].galleryKey === galleryKey)
+                    {
+                        removeIndex = index;
+                        break;
+                    }
+                }
+                if (removeIndex < 0)
+                {
+                    throw new Error('gallery was not in the admin list');
                     return;
                 }
-                adminJson.galleries.splice(index, 1);
+                adminJson.galleries.splice(removeIndex, 1);
                 fs.writeFile(adminPath, JSON.stringify(adminJson), (err) =>
                 {
                     if (err)
@@ -240,8 +252,11 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
     {
         sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
 
-        // Read the gallery file to validate the key
-        const galleryPath = 'galleries/' + req.body.galleryKey + '.json';
+        // Validate the write key
+        const keyPath = 'galleries/' + req.body.writeKey + '.json';
+        const galleryKey = JSON.parse(fs.readFileSync(keyPath)).galleryKey;
+
+        // TODO lock, read, write at the very end
         const data = fs.readFileSync(galleryPath);
         let gallery = JSON.parse(data);
 

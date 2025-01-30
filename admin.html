@@ -16,11 +16,13 @@ function addLog(str)
     $('<br>').appendTo(logDiv);
 }
 
-async function addGallery(galleryKey)
+async function addGallery(keys)
 {
+    const galleryKey = keys.galleryKey;
+    const writeKey = keys.writeKey;
     const galleryList = $('#galleryList');
     const li = $('<li>').appendTo(galleryList);
-    const link = $('<a>').attr('href', 'index.html?' + galleryKey).text(galleryKey).appendTo(li);
+    const link = $('<a>').attr('href', 'index.html?' + writeKey).text(galleryKey).appendTo(li);
     $('<span>').text(' ').appendTo(li);
     $('<button>').text('delete').click(() => deleteGallery(li, galleryKey)).appendTo(li);
     fetch('galleries/' + galleryKey + '.json')
@@ -58,42 +60,43 @@ window.onload = () =>
         });
 }
 
-function adminApi(api, request, onSuccess)
+function adminApi(api, request)
 {
-    const xhr = new XMLHttpRequest();
-	const url = 'api/' + api;
-	xhr.open("POST", url, true);
-	xhr.setRequestHeader("Content-Type", "application/json");
-	xhr.onreadystatechange = function ()
-	{
-		if (xhr.readyState === 4)
-		{
-			if (xhr.status === 200)
-			{
-                onSuccess(xhr.responseText);
-			}
-			else
-			{
-                addLog(api + ' failed (' + xhr.status + '): ' + xhr.responseText);
-			}
-		}
-	};
-	
     request.adminKey = getAdminKey();
-	var stringData = JSON.stringify(request);
-	xhr.send(stringData);
+    return new Promise((resolve, reject) =>
+    {
+        fetch('api/' + api, { method: 'POST', body: JSON.stringify(request) })
+            .then((response) =>
+            {
+                if (response.status !== 200)
+                {
+                    response.text().then((text) => reject(text));
+                }
+                else
+                {
+                    resolve(response);
+                }
+            });
+    })
+    return ;
 }
 
 // On create gallery button click
 function createGallery()
 {
-    adminApi('createGallery', { name: $('#galleryName').val() }, (response) => addGallery(response))
+    adminApi('createGallery', { name: $('#galleryName').val() })
+        .then((response) => response.json())
+        .then((json) => addGallery(json))
+        .catch((err) => console.log(err));
 }
 
 // On delete gallery button click
 function deleteGallery(li, galleryKey)
 {
-    adminApi('deleteGallery', { galleryKey: galleryKey }, (response) => { li.remove(); });
+    adminApi('deleteGallery', { galleryKey: galleryKey })
+        .then((response) => response.text())
+        .then((response) => { li.remove(); })
+        .catch((err) => console.log(err));
 }
 
 </script>

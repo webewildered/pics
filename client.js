@@ -6,6 +6,7 @@ import Feeler from './feeler.js';
 // Global parameters
 //
 var galleryKey;
+var writeKey;
 var hasMouse = true;
 
 //
@@ -119,8 +120,7 @@ function updateActiveImage()
     $('#location').text(galleryEntry.location);
 
     // Play video
-    console.log(image.prop('nodeName'));
-    if (image.prop('nodeName') === 'video')
+    if (image.prop('nodeName').toLowerCase() === 'video')
     {
         const video = image.get(0);
         video.play();
@@ -238,6 +238,7 @@ function showImageBar(show, immediate)
     enableImageControls = show;
     fade($('.imageBar'), enableImageControls, immediate ? 0 : 0.1);
 }
+
 async function upload(event)
 {
     event.preventDefault();
@@ -247,7 +248,7 @@ async function upload(event)
     for (const file of files.files)
     {
         const formData = new FormData();
-        formData.append('galleryKey', galleryKey);
+        formData.append('writeKey', writeKey);
         formData.append('image', file);
         const response = await fetch('api/upload', { method: 'POST', body: formData });
         if (response.status !== 200)
@@ -322,17 +323,38 @@ window.onload = () =>
     }
 
     // Load the gallery
+    const loadGallery = () =>
+    {
+        for (let i = 0; i < gallery.images.length; i++)
+        {
+            const galleryEntry = gallery.images[i];
+            galleryEntry.index = i;
+            addImage(galleryEntry);
+        }
+    }
+    const loadGalleryJson = (key) =>
+    {
+        return fetch('galleries/' + key + '.json')
+            .then((response) => response.json())
+    }
     const thumbs = $('#thumbs');
-    fetch('galleries/' + galleryKey + '.json')
-        .then((response) => response.json())
+    loadGalleryJson(galleryKey)
         .then((json) =>
         {
-            gallery = json;
-            for (let i = 0; i < gallery.images.length; i++)
+            if (json.galleryKey)
             {
-                const galleryEntry = gallery.images[i];
-                galleryEntry.index = i;
-                addImage(galleryEntry);
+                writeKey = galleryKey;
+                galleryKey = json.galleryKey;
+                loadGalleryJson(galleryKey)
+                    .then((json) => { loadGallery(json) })
+                    .catch((error) =>
+                    {
+                        $('<span>error: ' + error + '</span>').appendTo(thumbs);
+                    });
+            }
+            else
+            {
+                loadGallery(json);
             }
         })
         .catch((error) =>
