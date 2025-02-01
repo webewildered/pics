@@ -70,7 +70,11 @@ function adminApi(api, request)
             {
                 if (response.status !== 200)
                 {
-                    response.text().then((text) => reject(text));
+                    response.text()
+                        .then((text) => 
+                        {
+                            reject(api + ' failed:\n' + text);
+                        });
                 }
                 else
                 {
@@ -99,6 +103,13 @@ function deleteGallery(li, galleryKey)
         .catch((err) => console.log(err));
 }
 
+var n = 1;
+function test()
+{
+    adminApi('test', {message: 'n ' + (n++)})
+        .catch((err) => console.log(err));
+}
+
 </script>
 </head>
 <body>
@@ -109,6 +120,9 @@ function deleteGallery(li, galleryKey)
         <ul id="galleryList">
         </ul>
     </div>
+    <br /><br />
+    <button onclick="test()">test</button>
+    <br /><br />
     <div id="log"></span>
 </body>
 </html>

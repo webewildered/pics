@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer')
-const fs = require('fs');
+const fs = require('fs'); // TODO probably replace fs with fsPromises completely
+const fsPromises = require('fs').promises;
 const bases = require('bases')
 const rand = require('random-seed').create();
 const sharp = require('sharp');
@@ -87,46 +88,120 @@ function makeKey()
     return key;
 }
 
+function readRequest(req)
+{
+    return new Promise((resolve, reject) =>
+    {
+        // Read the request data into body
+        let body = [];
+        req
+            .on('data', (chunk) =>
+            {
+                body.push(chunk);
+            })
+            .on('end', () =>
+            {
+                body = Buffer.concat(body).toString();
+                const requestJson = JSON.parse(body);
+                resolve(requestJson);
+            })
+            .on('error', () => reject('Request error'))
+            .on('error', () => reject('Request closed'))
+            .on('error', () => reject('Request aborted'));
+    });
+}
+
+function handleError(res, err)
+{
+    err = (err instanceof Error) ? err.stack : err;
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end(err);
+}
+
 // Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath)
 // TODO lock the admin file
 function adminOp(req, res, op)
 {
-    try
-    {
-        // Read the request data into body
-        let body = [];
-        req.on('data', (chunk) =>
+    let requestJson;
+    let adminPath;
+    readRequest(req)
+        .then(requestJsonIn =>
         {
-            body.push(chunk);
-        }).on('end', () =>
-        {
-            body = Buffer.concat(body).toString();
-
-            // Read the admin file to validate the key
-            const requestJson = JSON.parse(body);
+            // Read the admin file (this validates the key)
+            requestJson = requestJsonIn;
             const adminKey = requestJson.adminKey;
-            const adminPath = 'admin/' + adminKey + '.json';
-            fs.readFile(adminPath, (err, data) =>
-            {
-                if (err)
-                {
-                    throw err;
-                }
-
-                adminJson = JSON.parse(data);
-                if (adminJson.type === 'admin')
-                {
-                    op(requestJson, res, adminJson, adminPath);
-                }
-            });
-        });
-    }
-    catch (err)
-    {
-        res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end(error);
-    }
+            adminPath = 'admin/' + adminKey + '.json';
+            return fsPromises.readFile(adminPath, 'utf8');
+        })
+        .then(adminStr => op(requestJson, res, JSON.parse(adminStr), adminPath))
+        .catch(err => handleError(res, err));
 }
+
+function lock(file, attempts = 20, delay = 10, backoff = 2, maxDelay = 1000)
+{
+    const lockFile = file + '.lock';
+    return new Promise((resolve, reject) =>
+    {
+        function tryLock()
+        {
+            fsPromises.writeFile(lockFile, 'lock', {flag: 'wx'})
+                .then((fh) => resolve(lockFile))
+                .catch((err) =>
+                {
+                    if (!(--attempts > 0))
+                    {
+                        reject('Could not lock ' + file);
+                        return;
+                    }
+                    setTimeout(tryLock, delay);
+                    delay *= backoff;
+                    delay = Math.min(delay, maxDelay);
+                });
+        }
+        tryLock();
+    });
+}
+
+function unlock(lockFile)
+{
+    if (lockFile !== undefined)
+    {
+        return fsPromises.unlink(lockFile);
+    } // else the lock was not held
+}
+
+function pause(t)
+{
+    return new Promise((resolve, reject) =>
+    {
+        setTimeout(() => resolve(), t);
+    })
+}
+
+app.post('/api/test', function (req, res)
+{
+    let handle;
+    let json;
+    readRequest(req)
+        .then((jsonIn) =>
+        {
+            json = jsonIn; 
+            return lock('zzz.txt');
+        })
+        .then((handleIn) =>
+        {
+            handle = handleIn;
+            return fsPromises.writeFile('zzz.txt', 'write ' + json.message);
+        })
+        .then(() =>
+        {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ok:'ok'}));
+        })
+        .then(() => pause(500))
+        .catch((err) => handleError(res, err))
+        .finally(() => unlock(handle));
+});
 
 //
 // Create a photo gallery
@@ -136,34 +211,32 @@ app.post('/api/createGallery', function (req, res)
 {
     adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
     {
+        const promises = [];
+
         // Create the gallery
         const writeKey = makeKey();
         const galleryKey = makeKey();
         let gallery = {};
         gallery.name = requestJson.name;
         gallery.images = [];
-        fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery), () =>
-        {
-            // Add the gallery to the list
-            const gallery = {galleryKey: galleryKey, writeKey: writeKey};
-            adminJson.galleries.push(gallery);
-            fs.writeFile(adminPath, JSON.stringify(adminJson), (err) =>
-            {
-                if (err)
-                {
-                    throw err;
-                }
+        promises.push(fsPromises.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery)));
+    
+        // Add the gallery to the list
+        const galleryKeys = {galleryKey: galleryKey, writeKey: writeKey};
+        adminJson.galleries.push(galleryKeys);
+        promises.push(fsPromises.writeFile(adminPath, JSON.stringify(adminJson)));
+        
+        // Add the write permission file
+        const writePath = 'galleries/' + writeKey + '.json';
+        promises.push(fsPromises.writeFile(writePath, JSON.stringify({galleryKey: galleryKey})));
 
-                // Add the write permission file
-                const writePath = 'galleries/' + writeKey + '.json';
-                fs.writeFile(writePath, JSON.stringify({galleryKey: galleryKey}), () =>
-                {
-                    // Return the gallery key to the client
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify(gallery));
-                });
-            });
-        });
+        return Promise.all(promises)
+            .then(() =>
+            {
+                // Return the keys to the client
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(galleryKeys));
+            })
     });
 });
 
@@ -175,52 +248,42 @@ app.post('/api/deleteGallery', function (req, res)
 {
     adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
     {
-        // Delete the gallery
+        const promises = [];
         const galleryKey = requestJson.galleryKey;
-        const galleryPath = 'galleries/' + galleryKey + '.json';
-        fs.readFile(galleryPath, (err, data) =>
+                
+        // Remove the entry from the admin file
+        let writeKey;
+        for (let index = 0; index < adminJson.galleries.length; index++)
         {
-            if (err)
+            const galleryKeys = adminJson.galleries[index];
+            if (galleryKeys.galleryKey === galleryKey)
             {
-                throw err;
+                writeKey = galleryKeys.writeKey;
+                adminJson.galleries.splice(index, 1);
+                break;
             }
+        }
+        if (writeKey === undefined)
+        {
+            throw new Error('gallery ' + galleryKey + ' was not in the admin list');
+        }
+        promises.push(fsPromises.writeFile(adminPath, JSON.stringify(adminJson)));
 
-            fs.unlink(galleryPath, (err) =>
+        // Delete the gallery file
+        const galleryPath = 'galleries/' + galleryKey + '.json';
+        promises.push(fsPromises.unlink(galleryPath));
+
+        // Delete the write key file
+        const keyPath = 'galleries/' + writeKey + '.json';
+        promises.push(fsPromises.unlink(keyPath));
+
+        return Promise.all(promises)
+            .then(() =>
             {
-                if (err)
-                {
-                    throw err;
-                }
-
-                // Remove the gallery from the list
-                let removeIndex = -1;
-                for (let index = 0; index < adminJson.galleries.length; index++)
-                {
-                    if (adminJson.galleries[index].galleryKey === galleryKey)
-                    {
-                        removeIndex = index;
-                        break;
-                    }
-                }
-                if (removeIndex < 0)
-                {
-                    throw new Error('gallery was not in the admin list');
-                    return;
-                }
-                adminJson.galleries.splice(removeIndex, 1);
-                fs.writeFile(adminPath, JSON.stringify(adminJson), (err) =>
-                {
-                    if (err)
-                    {
-                        throw err;
-                    }
-
-                    // Return the gallery key to the client
-                    res.writeHead(200, { 'Content-Type': 'text/plain' });
-                    res.end(galleryKey);
-                });
+                // Return the gallery key to the client
+                res.writeHead(200, { 'Content-Type': 'text/plain' });
+                res.end(galleryKey);
             });
-        });
     });
 });
 
@@ -252,13 +315,9 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
     {
         sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
 
-        // Validate the write key
+        // Validate the write key and get the gallery key
         const keyPath = 'galleries/' + req.body.writeKey + '.json';
         const galleryKey = JSON.parse(fs.readFileSync(keyPath)).galleryKey;
-
-        // TODO lock, read, write at the very end
-        const data = fs.readFileSync(galleryPath);
-        let gallery = JSON.parse(data);
 
         // Check the file's type. Filename extension and mimetype are both unreliable.
         // TODO we should probably be able to do this without reading the entire file. I don't think it matters for images where we're
@@ -510,6 +569,21 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
         {
             throw new Error('Unknown file type "' + type + '"');
         }
+
+        // Update the gallery
+        const galleryPath = 'galleries/' + galleryKey + '.json';
+        fs.open(galleryPath, 'r+', (err, fd) =>
+        {
+            if (err)
+            {
+
+            }
+        });
+        
+        // TODO lock, read, write at the very end
+        const data = fs.readFileSync(galleryPath);
+        let gallery = JSON.parse(data);
+
         gallery.images.push(galleryEntry);
 
         // Write back the updated gallery
