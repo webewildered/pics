@@ -501,9 +501,11 @@ function processImage(image, imageType, originalFileName)
 
 function processVideo(video, originalFileName)
 {
+    const originalPath = 'originals/' + originalFileName;
     return new Promise((resolve, reject) =>
     {
         // Read metadata
+        
         ffmpeg(originalPath).ffprobe((err, data) =>
         {
             if (err)
@@ -611,6 +613,7 @@ function processVideo(video, originalFileName)
         // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
         const tempThumbFileName = makeKey() + '.jpg';
         const tempThumbPath  = 'thumbs/' + tempThumbFileName;
+        let thumbFileName;
         promises.push(
             ffpromise(ffmpeg(originalPath), (video) => 
             {
@@ -620,13 +623,8 @@ function processVideo(video, originalFileName)
             {
                 // Size the thumbnail and delete the temporary file
                 const sharpImage = sharp(tempThumbPath);
-                const thumbFileName = makeKey() + '.jpg';
-                return Promise.all(
-                    [
-                        createThumb(sharpImage, 'thumbs/' + thumbFileName),
-                        fs.unlink(tempThumbPath)
-                    ]
-                );
+                thumbFileName = makeKey() + '.jpg';
+                return createThumb(sharpImage, 'thumbs/' + thumbFileName).then(() => fs.unlink(tempThumbPath));
             }));
 
     
@@ -634,7 +632,6 @@ function processVideo(video, originalFileName)
         return Promise.all(promises).then(() =>
         {
             return {
-                title: file.originalname,
                 file: fileName,
                 thumb: thumbFileName,
                 original: originalFileName,
