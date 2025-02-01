@@ -5,8 +5,10 @@ import Feeler from './feeler.js';
 //
 // Global parameters
 //
+
 var galleryKey;
 var writeKey;
+var gallery;
 var hasMouse = true;
 
 //
@@ -250,21 +252,26 @@ async function upload(event)
         const formData = new FormData();
         formData.append('writeKey', writeKey);
         formData.append('image', file);
-        const response = await fetch('api/upload', { method: 'POST', body: formData });
-        if (response.status !== 200)
-        {
-            const error = await response.text();
-            console.log(error);
-        }
-        else
-        {
-            const galleryEntry = await response.json();
-            console.log('Added ' + galleryEntry.title);
-            galleryEntry.index = gallery.images.length;
-            gallery.images.push(galleryEntry);
-            addImage(galleryEntry);
-            count++;
-        }
+        fetch('api/upload', { method: 'POST', body: formData })
+            .then((response) =>
+            {
+                if (response.status !== 200)
+                {
+                    return response.text().then((text) => { throw new Error(text); });
+                }
+                else
+                {
+                    return response.json().then((galleryEntry) =>
+                    {
+                        console.log('Added ' + galleryEntry.title);
+                        galleryEntry.index = gallery.images.length;
+                        gallery.images.push(galleryEntry);
+                        addImage(galleryEntry);
+                        count++;
+                    });
+                }
+            })
+            .catch((err) => console.log(err));
     }
     console.log('Uploaded ' + count + ' images');
 }
@@ -288,7 +295,6 @@ function layout()
 }
 window.onresize = layout;
 
-var gallery;
 var hasMouse = true;
 window.onload = () =>
 {
@@ -323,8 +329,9 @@ window.onload = () =>
     }
 
     // Load the gallery
-    const loadGallery = () =>
+    const loadGallery = (galleryIn) =>
     {
+        gallery = galleryIn;
         for (let i = 0; i < gallery.images.length; i++)
         {
             const galleryEntry = gallery.images[i];
@@ -349,7 +356,7 @@ window.onload = () =>
                     .then((json) => { loadGallery(json) })
                     .catch((error) =>
                     {
-                        $('<span>error: ' + error + '</span>').appendTo(thumbs);
+                        $('<span style="color:white">error: ' + error + '</span>').appendTo(thumbs);
                     });
             }
             else

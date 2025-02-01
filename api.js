@@ -1,10 +1,10 @@
 const express = require('express');
 const multer = require('multer')
-const fs = require('fs'); // TODO probably replace fs with fsPromises completely
-const fsPromises = require('fs').promises;
+const fs = require('fs').promises;
 const bases = require('bases')
 const rand = require('random-seed').create();
 const sharp = require('sharp');
+sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
 const app = express();
 const path = require('path');
 const heicConvert = require('heic-jpg-exif');//require('heic-convert');
@@ -131,7 +131,7 @@ function adminOp(req, res, op)
             requestJson = requestJsonIn;
             const adminKey = requestJson.adminKey;
             adminPath = 'admin/' + adminKey + '.json';
-            return fsPromises.readFile(adminPath, 'utf8');
+            return fs.readFile(adminPath, 'utf8');
         })
         .then(adminStr => op(requestJson, res, JSON.parse(adminStr), adminPath))
         .catch(err => handleError(res, err));
@@ -144,7 +144,7 @@ function lock(file, attempts = 20, delay = 10, backoff = 2, maxDelay = 1000)
     {
         function tryLock()
         {
-            fsPromises.writeFile(lockFile, 'lock', {flag: 'wx'})
+            fs.writeFile(lockFile, 'lock', {flag: 'wx'})
                 .then((fh) => resolve(lockFile))
                 .catch((err) =>
                 {
@@ -166,8 +166,27 @@ function unlock(lockFile)
 {
     if (lockFile !== undefined)
     {
-        return fsPromises.unlink(lockFile);
+        return fs.unlink(lockFile);
     } // else the lock was not held
+}
+
+// Atomically read-modify-write json file. The object in the file is passed to update, which can modify it. Returns a promise.
+function updateJsonAtomic(path, update)
+{
+    let handle;
+    return lock(path)
+        .then((handleIn) =>
+        {
+            handle = handleIn;
+            return fs.readFile(path);
+        })
+        .then((jsonStr) =>
+        {
+            let json = JSON.parse(jsonStr);
+            update(json);
+            return fs.writeFile(path, JSON.stringify(json));
+        })
+        .finally(() => unlock(handle));
 }
 
 function pause(t)
@@ -191,7 +210,7 @@ app.post('/api/test', function (req, res)
         .then((handleIn) =>
         {
             handle = handleIn;
-            return fsPromises.writeFile('zzz.txt', 'write ' + json.message);
+            return fs.writeFile('zzz.txt', 'write ' + json.message);
         })
         .then(() =>
         {
@@ -219,16 +238,16 @@ app.post('/api/createGallery', function (req, res)
         let gallery = {};
         gallery.name = requestJson.name;
         gallery.images = [];
-        promises.push(fsPromises.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery)));
+        promises.push(fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery)));
     
         // Add the gallery to the list
         const galleryKeys = {galleryKey: galleryKey, writeKey: writeKey};
         adminJson.galleries.push(galleryKeys);
-        promises.push(fsPromises.writeFile(adminPath, JSON.stringify(adminJson)));
+        promises.push(fs.writeFile(adminPath, JSON.stringify(adminJson)));
         
         // Add the write permission file
         const writePath = 'galleries/' + writeKey + '.json';
-        promises.push(fsPromises.writeFile(writePath, JSON.stringify({galleryKey: galleryKey})));
+        promises.push(fs.writeFile(writePath, JSON.stringify({galleryKey: galleryKey})));
 
         return Promise.all(promises)
             .then(() =>
@@ -267,15 +286,15 @@ app.post('/api/deleteGallery', function (req, res)
         {
             throw new Error('gallery ' + galleryKey + ' was not in the admin list');
         }
-        promises.push(fsPromises.writeFile(adminPath, JSON.stringify(adminJson)));
+        promises.push(fs.writeFile(adminPath, JSON.stringify(adminJson)));
 
         // Delete the gallery file
         const galleryPath = 'galleries/' + galleryKey + '.json';
-        promises.push(fsPromises.unlink(galleryPath));
+        promises.push(fs.unlink(galleryPath));
 
         // Delete the write key file
         const keyPath = 'galleries/' + writeKey + '.json';
-        promises.push(fsPromises.unlink(keyPath));
+        promises.push(fs.unlink(keyPath));
 
         return Promise.all(promises)
             .then(() =>
@@ -311,123 +330,163 @@ var upload = multer(multerOpts);
 app.post('/api/upload', upload.single('image'), async function (req, res)
 {
     let cleanup = []; // List of files to delete in case of failure
-    try
-    {
-        sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
+    let galleryKey;
+    
+    const file = req.file;
+    let originalFileName = file.filename;
+    const originalPath = 'originals/' + originalFileName;
+    cleanup.push(originalPath);
 
-        // Validate the write key and get the gallery key
-        const keyPath = 'galleries/' + req.body.writeKey + '.json';
-        const galleryKey = JSON.parse(fs.readFileSync(keyPath)).galleryKey;
-
-        // Check the file's type. Filename extension and mimetype are both unreliable.
-        // TODO we should probably be able to do this without reading the entire file. I don't think it matters for images where we're
-        // going to load the whole thing anyway, but it probably does matter for video, which can be huge and which will be processed
-        // by ffmpeg rather than js code.
-        const file = req.file;
-        let originalFileName = file.filename;
-        const originalPath = 'originals/' + originalFileName;
-        cleanup.push(originalPath);
-        const uploadedImage = fs.readFileSync(originalPath);
-        const type = getFileType(uploadedImage, originalFileName);
-
-        var galleryEntry;
-        if (type === 'jpeg' || type === 'heic')
+    // Validate the write key and get the gallery key
+    const keyPath = 'galleries/' + req.body.writeKey + '.json';
+    fs.readFile(keyPath)
+        .then((keyFile) =>
         {
-            var fileName = originalFileName;
-            var jpegImage;
-            if (type === 'jpeg')
+            galleryKey = JSON.parse(keyFile).galleryKey;
+
+            // Read the image file
+            return fs.readFile(originalPath);
+        })
+        .then((uploadedData) =>
+        {
+            // Check the file's type. Filename extension and mimetype are both unreliable.
+            // TODO we should probably be able to do this without reading the entire file. I don't think it matters for images where we're
+            // going to load the whole thing anyway, but it probably does matter for video, which can be huge and which will be processed
+            // by ffmpeg rather than js code.
+            const type = getFileType(uploadedData, originalFileName);
+            
+            if (type === 'jpeg' || type === 'heic')
             {
-                // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
-                fileName = path.parse(fileName).name + '.jpg';
-                fs.renameSync('originals/' + originalFileName, 'images/' + fileName); // TODO this could probably be async
-                originalFileName = '';
-                jpegImage = uploadedImage;
+                return processImage(uploadedData, type, originalFileName);
             }
-            else if (type === 'heic')
+            else if (type === 'mp4' || type === 'qt')
             {
-                // Convert the heic to a jpeg
-                // const converted = await heicConvert({buffer: image, format: 'JPEG', quality: 1});
-                // fileName = makeKey() + '.jpg';
-                // fs.writeFileSync('images/' + fileName, converted);
-                const converted = await heicConvert(uploadedImage);
-                fileName = makeKey() + '.jpg';
-                fs.writeFileSync('images/' + fileName, converted);
-                jpegImage = converted;
+                return processVideo(uploadedData, originalFileName);
             }
             else
             {
-                throw new error('Unexpected image type "' + type + '"');
+                throw new Error('Unknown file type "' + type + '"');
             }
-
-            // We start multiple async operations, then await them all
-            let promises = [];
-
-            // Create the thumbnail
-            const sharpImage = sharp(jpegImage);
-            const thumbFileName = makeKey() + '.jpg';
-            promises.push(createThumb(sharpImage, 'thumbs/' + thumbFileName));
-
-            // Get native image dimensions
-            let nativeWidth, nativeHeight;
-            promises.push(sharpImage
-                .metadata()
-                .then((metadata) =>
-                {
-                    nativeWidth = metadata.width;
-                    nativeHeight = metadata.height;
-                })
-            );
-
-            // Extract exif data
-            let originalDate = new Date(1900, 0);
-            let location = 'Unknown location';
-            promises.push(getExif(jpegImage)
-                .then((exifData) =>
-                {
-                    // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
-                    var dateTime = exifData.exif.DateTimeOriginal;
-                    const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
-                    if (dateTimeMatches)
-                    {
-                        originalDate = new Date();
-                        originalDate.setFullYear(Number(dateTimeMatches[1]));
-                        originalDate.setMonth(Number(dateTimeMatches[2]));
-                        originalDate.setDate(Number(dateTimeMatches[3]));
-                        originalDate.setHours(Number(dateTimeMatches[4]));
-                        originalDate.setMinutes(Number(dateTimeMatches[5]));
-                        originalDate.setSeconds(Number(dateTimeMatches[6]));
-                    }
-
-                    // Extract GPS coordinates from exif, should be degrees,minutes,seconds
-                    function exifGPSCoordToDeg(exifGPSCoord)
-                    {
-                        if (exifGPSCoord && exifGPSCoord.length == 3)
-                        {
-                            const degrees = exifGPSCoord[0];
-                            const minutes = exifGPSCoord[1];
-                            const seconds = exifGPSCoord[2];
-                            return degrees + minutes / 60 + seconds / 3600;
-                        }
-                        return 0;
-                    }
-
-                    const lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
-                    const lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
-
-                    return reverseGeocode(lat, lon);
-                }, (err) => { throw new Error('Exif error: ' + err.message); })
-                .then((reverseGeocodeResult) => { location = reverseGeocodeResult; })
-            );
-
-            await Promise.all(promises);
-            if (res.writableEnded)
+        })
+        .then((galleryEntry) =>
+        {
+            // Update the gallery
+            galleryEntry.title = file.originalname;
+            const galleryPath = 'galleries/' + galleryKey + '.json';
+            return updateJsonAtomic(galleryPath, (gallery) =>
             {
-                return;
+                gallery.images.push(galleryEntry);
+            })
+            .then(() =>
+            {
+                // Send the new gallery entry to the client
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(galleryEntry));
+            })
+        })
+        .catch((err) => handleError(res, err))
+        .finally(() =>
+        {
+            for (const path of cleanup)
+            {
+                fs.unlink(path);
             }
+        });
+});
 
-            // Create the gallery entry
-            galleryEntry = {
-                title: file.originalname,
+function processImage(image, imageType, originalFileName)
+{
+    let fileName = originalFileName;
+    let convertPromise;
+    if (imageType === 'jpeg')
+    {
+        // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
+        fileName = path.parse(fileName).name + '.jpg';
+        originalFileName = '';
+        convertPromise = fs.rename('originals/' + originalFileName, 'images/' + fileName)
+            .then(() => image);
+    }
+    else if (imageType === 'heic')
+    {
+        // Convert the heic to a jpeg
+        fileName = makeKey() + '.jpg';
+        convertPromise = heicConvert(image)
+            .then((jpegImage) =>
+            {
+                return fs.writeFile('images/' + fileName, jpegImage)
+                    .then(() => jpegImage);
+            })
+    }
+    else
+    {
+        throw new error('Unexpected image type "' + imageType + '"');
+    }
+
+    return convertPromise.then((jpegImage) =>
+    {
+        const promises = [];
+
+        // Create the thumbnail
+        const sharpImage = sharp(jpegImage);
+        const thumbFileName = makeKey() + '.jpg';
+        promises.push(createThumb(sharpImage, 'thumbs/' + thumbFileName));
+    
+        // Get native image dimensions
+        let nativeWidth, nativeHeight;
+        promises.push(sharpImage
+            .metadata()
+            .then((metadata) =>
+            {
+                nativeWidth = metadata.width;
+                nativeHeight = metadata.height;
+            })
+        );
+    
+        // Extract exif data
+        let originalDate = new Date(1900, 0);
+        let location = 'Unknown location';
+        promises.push(getExif(jpegImage)
+            .then((exifData) =>
+            {
+                // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
+                var dateTime = exifData.exif.DateTimeOriginal;
+                const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+                if (dateTimeMatches)
+                {
+                    originalDate = new Date();
+                    originalDate.setFullYear(Number(dateTimeMatches[1]));
+                    originalDate.setMonth(Number(dateTimeMatches[2]));
+                    originalDate.setDate(Number(dateTimeMatches[3]));
+                    originalDate.setHours(Number(dateTimeMatches[4]));
+                    originalDate.setMinutes(Number(dateTimeMatches[5]));
+                    originalDate.setSeconds(Number(dateTimeMatches[6]));
+                }
+    
+                // Extract GPS coordinates from exif, should be degrees,minutes,seconds
+                function exifGPSCoordToDeg(exifGPSCoord)
+                {
+                    if (exifGPSCoord && exifGPSCoord.length == 3)
+                    {
+                        const degrees = exifGPSCoord[0];
+                        const minutes = exifGPSCoord[1];
+                        const seconds = exifGPSCoord[2];
+                        return degrees + minutes / 60 + seconds / 3600;
+                    }
+                    return 0;
+                }
+    
+                const lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
+                const lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
+    
+                return reverseGeocode(lat, lon);
+            })
+            .then((reverseGeocodeResult) => { location = reverseGeocodeResult; })
+        );
+    
+        // Return the gallery entry
+        return Promise.all(promises).then(() =>
+        {
+            return {
                 file: fileName,
                 thumb: thumbFileName,
                 original: originalFileName,
@@ -436,125 +495,145 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
                 date: originalDate,
                 location: location
             };
-        }
-        else if (type === 'mp4' || type === 'qt')
+        });
+    });
+}
+
+function processVideo(video, originalFileName)
+{
+    return new Promise((resolve, reject) =>
+    {
+        // Read metadata
+        ffmpeg(originalPath).ffprobe((err, data) =>
         {
-            let fileName = originalFileName;
-
-            const metadata = await new Promise((resolve, reject) =>
+            if (err)
             {
-                ffmpeg(originalPath).ffprobe((err, data) =>
-                {
-                    if (err)
-                    {
-                        reject(err);
-                    }
-                    else
-                    {
-                        resolve(data);
-                    }
-                });
-            });
-            let foundVideo = false;
-            let foundUnsupportedCodec = false;
-            let width = 0;
-            let height = 0;
-            let duration = 0;
-            for (const stream of metadata.streams)
-            {
-                if (stream.codec_type === 'video')
-                {
-                    foundVideo = true;
-                    width = stream.width;
-                    height = stream.height;
-                    duration = Number(stream.duration);
-                    if (stream.codec_tag_string !== 'avc1')
-                    {
-                        foundUnsupportedCodec = true;
-                    }
-                    break; // TODO not sure what a file with multiple video streams would mean
-                }
-            }
-
-            if (!foundVideo)
-            {
-                throw new Error('Video stream not found');
-            }
-
-            // Extract date from the metadata
-            var date = new Date(1900, 1);
-            if (metadata.creation_time)
-            {
-                date = new Date(metadata.creation_time);
-            }
-
-            // Extract location from the metadata
-            let location = 'Unknown location';
-            let coords = metadata.location;
-            if (!coords)
-            {
-                coords = metadata['com.apple.quicktime.location.ISO6709'];
-            }
-            if (coords)
-            {
-                const regex = /^([-+]\d{2,3}\.\d+)([-+]\d{2,3}\.\d+).+$/;
-                const match = iso6709.match(regex);
-                if (match)
-                {
-                    const latitude = parseFloat(match[1]);
-                    const longitude = parseFloat(match[2]);
-                    location = await reverseGeocode(location); // TODO don't await, paralellize with video processing
-                }
-            }
-
-            function ffpromise(video, cb)
-            {
-                return new Promise((resolve, reject) =>
-                {
-                    let cl = '';
-                    video
-                        .on('start', (clStart) => { cl = clStart; })
-                        .on('error', (err, stdout, stderr) =>
-                        {
-                            let message = err.message + cl;
-                            reject(new Error(message));
-                        })
-                        .on('end', (result) => resolve(result));
-                    cb(video);
-                });
-            }
-
-            if (foundUnsupportedCodec)
-            {
-                // Transcode
-                fileName = makeKey() + '.mp4';
-                const newPath = 'images/' + fileName;
-                cleanup.push(newPath);
-                await ffpromise(ffmpeg(originalPath).output(newPath), (video) => video.run());
+                reject(err);
             }
             else
             {
-                // Move the original
-                fileName = path.parse(fileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
-                fs.renameSync(originalPath, 'images/' + fileName); // TODO this could probably be async
+                resolve(data);
             }
+        });
+    })
+    .then((metadata) =>
+    {
+        const promises = [];
 
-            // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
-            const tempThumbFileName = makeKey() + '.jpg';
-            const tempThumbPath  = 'thumbs/' + tempThumbFileName;
-            await ffpromise(ffmpeg(originalPath), (video) => 
+        // Process metadata
+        let foundVideo = false;
+        let foundUnsupportedCodec = false;
+        let width = 0;
+        let height = 0;
+        let duration = 0;
+        let location = 'Unknown location';
+        for (const stream of metadata.streams)
+        {
+            if (stream.codec_type === 'video')
+            {
+                foundVideo = true;
+                width = stream.width;
+                height = stream.height;
+                duration = Number(stream.duration);
+                if (stream.codec_tag_string !== 'avc1')
+                {
+                    foundUnsupportedCodec = true;
+                }
+                break; // TODO not sure what a file with multiple video streams would mean
+            }
+        }
+    
+        if (!foundVideo)
+        {
+            throw new Error('Video stream not found');
+        }
+    
+        // Extract date from the metadata
+        var date = new Date(1900, 1);
+        if (metadata.creation_time)
+        {
+            date = new Date(metadata.creation_time);
+        }
+    
+        // Extract location from the metadata
+        let coords = metadata.location;
+        if (!coords)
+        {
+            coords = metadata['com.apple.quicktime.location.ISO6709'];
+        }
+        if (coords)
+        {
+            const regex = /^([-+]\d{2,3}\.\d+)([-+]\d{2,3}\.\d+).+$/;
+            const match = iso6709.match(regex);
+            if (match)
+            {
+                const latitude = parseFloat(match[1]);
+                const longitude = parseFloat(match[2]);
+                promises.push(reverseGeocode(location)
+                    .then((reverseGeocodeResult) => { location = reverseGeocodeResult; }));
+            }
+        }
+
+        // Process video
+        function ffpromise(video, cb)
+        {
+            return new Promise((resolve, reject) =>
+            {
+                let cl = '';
+                video
+                    .on('start', (clStart) => { cl = clStart; })
+                    .on('error', (err, stdout, stderr) =>
+                    {
+                        let message = err.message + cl;
+                        reject(new Error(message));
+                    })
+                    .on('end', (result) => resolve(result));
+                cb(video);
+            });
+        }
+
+        let fileName = originalFileName;
+        if (foundUnsupportedCodec)
+        {
+            // Transcode
+            fileName = makeKey() + '.mp4';
+            const newPath = 'images/' + fileName;
+            //cleanup.push(newPath); // TODO
+            promises.push(ffpromise(ffmpeg(originalPath).output(newPath), (video) => video.run()));
+        }
+        else
+        {
+            // Move the original
+            fileName = path.parse(fileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
+            promises.push(fs.renameSync(originalPath, 'images/' + fileName));
+        }
+
+        // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
+        const tempThumbFileName = makeKey() + '.jpg';
+        const tempThumbPath  = 'thumbs/' + tempThumbFileName;
+        promises.push(
+            ffpromise(ffmpeg(originalPath), (video) => 
             {
                 video.screenshots({filename: tempThumbFileName, folder: 'thumbs', timestamps: [Math.min(1, duration / 2)]})
-            });
+            })
+            .then(() =>
+            {
+                // Size the thumbnail and delete the temporary file
+                const sharpImage = sharp(tempThumbPath);
+                const thumbFileName = makeKey() + '.jpg';
+                return Promise.all(
+                    [
+                        createThumb(sharpImage, 'thumbs/' + thumbFileName),
+                        fs.unlink(tempThumbPath)
+                    ]
+                );
+            }));
 
-            // Size the thumbnail
-            const sharpImage = sharp(tempThumbPath);
-            const thumbFileName = makeKey() + '.jpg';
-            await createThumb(sharpImage, 'thumbs/' + thumbFileName);
-            fs.unlinkSync(tempThumbPath);
-
-            // Create the gallery entry
-            galleryEntry = {
+    
+        // Return the gallery entry
+        return Promise.all(promises).then(() =>
+        {
+            return {
                 title: file.originalname,
                 file: fileName,
                 thumb: thumbFileName,
@@ -564,51 +643,9 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
                 date: date,
                 location: location
             };
-        }
-        else
-        {
-            throw new Error('Unknown file type "' + type + '"');
-        }
-
-        // Update the gallery
-        const galleryPath = 'galleries/' + galleryKey + '.json';
-        fs.open(galleryPath, 'r+', (err, fd) =>
-        {
-            if (err)
-            {
-
-            }
         });
-        
-        // TODO lock, read, write at the very end
-        const data = fs.readFileSync(galleryPath);
-        let gallery = JSON.parse(data);
-
-        gallery.images.push(galleryEntry);
-
-        // Write back the updated gallery
-        fs.writeFileSync(galleryPath, JSON.stringify(gallery));
-
-        // Send the new gallery entry to the client
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(galleryEntry));
-    }
-    catch (err)
-    {
-        try
-        {
-            for (const path of cleanup)
-            {
-                fs.unlinkSync(path);
-            }
-        } catch {}
-        if (!res.writableEnded)
-        {
-            res.writeHead(500, { 'Content-Type': 'text/plain' });
-            res.end(err.stack);
-        }
-    }
-});
+    });
+}
 
 function createThumb(sharpImage, thumbFileName)
 {
