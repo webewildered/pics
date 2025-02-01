@@ -11,10 +11,17 @@
     <div id="galleryView">
         <!-- top bar -->
         <div id="galleryBar">
-            <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
-                <input id="fileInput" type="file" name="files" multiple accept="image/jpeg,image/heic,video/mp4,video/quicktime"/>
-                <button id="uploadButton">+</button>
-            </form>
+            <div>
+                <form id="uploadForm" enctype="multipart/form-data" style="margin:0px">
+                    <input id="fileInput" type="file" name="files" multiple accept="image/jpeg,image/heic,video/mp4,video/quicktime"/>
+                    <button id="uploadButton">+</button>
+                </form>
+            </div>
+            <div id="progressContainer" hidden>
+                <div id="progressBar">
+                </div>
+            </div>
+            <div id="progressText" hidden></div>
         </div>
 
         <!-- thumbnail grid --> 

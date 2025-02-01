@@ -244,11 +244,30 @@ function showImageBar(show, immediate)
 async function upload(event)
 {
     event.preventDefault();
-
     const files = document.getElementById('fileInput');
-    let count = 0;
+    const filesTotal = files.files.length;
+    let bytesTotal = 0;
+    let filesComplete = 0;
+    let bytesComplete = 0;
+    function updateProgress()
+    {
+        if (filesComplete === filesTotal)
+        {
+            $('#progressContainer').hide();
+            $('#progressText').hide();
+        }
+        else
+        {
+            $('#progressContainer').show();
+            $('#progressBar').css('width', Math.floor(100 * bytesComplete / bytesTotal) + '%');
+            $('#progressText').show()
+                .text(filesComplete + '/' + filesTotal);
+        }
+    }
+
     for (const file of files.files)
     {
+        bytesTotal += file.size;
         const formData = new FormData();
         formData.append('writeKey', writeKey);
         formData.append('image', file);
@@ -267,13 +286,16 @@ async function upload(event)
                         galleryEntry.index = gallery.images.length;
                         gallery.images.push(galleryEntry);
                         addImage(galleryEntry);
-                        count++;
+                        filesComplete++;
+                        bytesComplete += file.size;
+                        updateProgress();
                     });
                 }
             })
             .catch((err) => console.log(err));
     }
-    console.log('Uploaded ' + count + ' images');
+
+    updateProgress();
 }
 
 function layout()

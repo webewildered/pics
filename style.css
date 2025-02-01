@@ -1,7 +1,7 @@
 body {
     font-family: helvetica;
-    background-color:black;
-    margin:0;
+    background-color: black;
+    margin: 0;
     overflow: hidden;
 }
 
@@ -31,12 +31,33 @@ body {
 #galleryBar {
     background-color: #333;
     padding: 10px;
-    flex: 0 1 auto;
+    display: flex;
+    align-items: center;
+}
+
+#progressContainer {
+    width: 300px;
+    height: 25px;
+    margin-left: 10px;
+    background-color: #111;
+    border: 1px solid #ddd;
+}
+
+#progressBar {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    background-color: #ddd;
+}
+
+#progressText {
+    margin-left: 5px;
+    color: white;
 }
 
 #thumbContainer {
     flex: 1 1 auto;
-    overflow: hidden
+    overflow: hidden;
 }
 
 .thumb {
