@@ -246,9 +246,7 @@ async function upload(event)
     event.preventDefault();
     const files = document.getElementById('fileInput');
     const filesTotal = files.files.length;
-    let bytesTotal = 0;
     let filesComplete = 0;
-    let bytesComplete = 0;
     let filesFailed = 0;
     function updateProgress()
     {
@@ -260,7 +258,7 @@ async function upload(event)
         else
         {
             $('#progressContainer').show();
-            $('#progressBar').css('width', Math.floor(100 * bytesComplete / bytesTotal) + '%');
+            $('#progressBar').css('width', Math.floor(100 * filesComplete / filesTotal) + '%');
             $('#progressText').show()
                 .text(filesComplete + '/' + filesTotal);
         }
@@ -274,9 +272,18 @@ async function upload(event)
         }
     }
 
-    for (const file of files.files)
+    // Browser limits the number of simultaneous requests to 6, if we queue up 50 upload requests then
+    // we won't be able to load the uploaded images until 45 of them complete. For now rate-limit the
+    // requests, later we should probably stream uploads over a single websocket
+    let nextFileIndex = 0;
+    function nextRequest()
     {
-        bytesTotal += file.size;
+        if (nextFileIndex >= filesTotal)
+        {
+            return;
+        }
+
+        const file = files.files[nextFileIndex++];
         const formData = new FormData();
         formData.append('writeKey', writeKey);
         formData.append('image', file);
@@ -295,22 +302,28 @@ async function upload(event)
                         galleryEntry.index = gallery.images.length;
                         gallery.images.push(galleryEntry);
                         addImage(galleryEntry);
-                        filesComplete++;
-                        bytesComplete += file.size;
-                        updateProgress();
                     });
                 }
             })
             .catch((err) =>
             {
                 console.log(err);
-                filesComplete++;
-                bytesComplete += file.size;
                 filesFailed++;
+            })
+            .finally(() =>
+            {
+                filesComplete++;
                 updateProgress();
+                nextRequest();
             });
     }
+    const maxSimultaneousRequests = 4;
+    for (let i = 0; i < maxSimultaneousRequests; i++)
+    {
+        nextRequest();
+    }
 
+    // Show the progress bar
     updateProgress();
 }
 

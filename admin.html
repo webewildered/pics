@@ -110,7 +110,8 @@ function test()
 
 function clearAll()
 {
-    adminApi('clear', {abc:123})
+    adminApi('clear', {})
+        .then(() => { $('#galleryList').empty(); })
         .catch((err) => console.log(err));
 }
 
