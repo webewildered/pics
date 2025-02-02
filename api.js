@@ -406,7 +406,7 @@ var multerOpts = {
     }
 };
 var upload = multer(multerOpts);
-app.post('/api/upload', upload.single('image'), async function (req, res)
+app.post('/api/upload', upload.single('image'), function (req, res)
 {
     let lastTime = timems();
     function logTime(label)

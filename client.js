@@ -292,7 +292,11 @@ async function upload(event)
             {
                 if (response.status !== 200)
                 {
-                    return response.text().then((text) => { throw new Error(text); });
+                    return response.text().then((text) =>
+                    {
+                        const err = response.status + ' ' + response.statusText + '\n' + response.url + '\n' + text;
+                        throw new Error(err);
+                    });
                 }
                 else
                 {
@@ -307,7 +311,7 @@ async function upload(event)
             })
             .catch((err) =>
             {
-                console.log(err);
+                console.log(err.toString());
                 filesFailed++;
             })
             .finally(() =>
