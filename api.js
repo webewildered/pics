@@ -123,23 +123,26 @@ function handleError(res, err)
     res.end(err);
 }
 
-// Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath).
-// Returns a Promise chain ending with the return from op().
-// TODO lock the admin file
+// Verifies that the request body is json with a valid adminKey, and if so calls op(requestJson, res, adminJson).
+// op() returns a promise resolving to the response to write in case of success.
+// Modifications that op() makes to adminJson are written back atomically.
+// Returns a Promise.
 function adminOp(req, res, op)
 {
-    let requestJson;
-    let adminPath;
     readRequest(req)
-        .then(requestJsonIn =>
+        .then(requestJson =>
         {
             // Read the admin file (this validates the key)
-            requestJson = requestJsonIn;
             const adminKey = requestJson.adminKey;
-            adminPath = 'admin/' + adminKey + '.json';
-            return fs.readFile(adminPath, 'utf8');
+            const adminPath = 'admin/' + adminKey + '.json';
+            return updateJsonAtomic(adminPath, (adminJson) => op(requestJson, res, adminJson))
         })
-        .then(adminStr => op(requestJson, res, JSON.parse(adminStr), adminPath))
+        .then(resObj =>
+        {
+            // Return the keys to the client
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(resObj));
+        })
         .catch(err => handleError(res, err));
 }
 
@@ -229,6 +232,42 @@ function pause(t)
     })
 }
 
+app.post('/api/clear', function (req, res)
+{
+    adminOp(req, res, (requestJson, res, adminJson) =>
+    {
+        function clearDirectory(directory) {
+            return fs.stat(directory)
+            .then((dirExists) => {
+                if (!dirExists)
+                {
+                    throw new Error('Missing directory ' + directory);
+                }
+                return fs.readdir(directory);
+            })
+            .then((files) => {
+                return Promise.all(files.map((file) => {
+                    const filePath = path.join(directory, file);
+                    return fs.unlink(filePath);
+                }));
+            })
+            .catch((error) => console.error(`Error deleting files: ${error.message}`));
+        }
+
+        return Promise.all([
+            clearDirectory('images'),
+            clearDirectory('originals'),
+            clearDirectory('thumbs'),
+            clearDirectory('galleries')
+        ])
+        .then(() =>
+        {
+            adminJson.galleries = [];
+            return {}; // Return empty result to the user
+        });
+    });
+});
+
 app.post('/api/test', function (req, res)
 {
     let handle;
@@ -260,7 +299,7 @@ app.post('/api/test', function (req, res)
 
 app.post('/api/createGallery', function (req, res)
 {
-    adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
+    adminOp(req, res, (requestJson, res, adminJson) =>
     {
         const promises = [];
 
@@ -271,23 +310,17 @@ app.post('/api/createGallery', function (req, res)
         gallery.name = requestJson.name;
         gallery.images = [];
         promises.push(fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery)));
-    
-        // Add the gallery to the list
-        const galleryKeys = {galleryKey: galleryKey, writeKey: writeKey};
-        adminJson.galleries.push(galleryKeys);
-        promises.push(fs.writeFile(adminPath, JSON.stringify(adminJson)));
         
         // Add the write permission file
         const writePath = 'galleries/' + writeKey + '.json';
         promises.push(fs.writeFile(writePath, JSON.stringify({galleryKey: galleryKey})));
+        
+        // Add the gallery to the list
+        const galleryKeys = {galleryKey: galleryKey, writeKey: writeKey};
+        adminJson.galleries.push(galleryKeys);
 
-        return Promise.all(promises)
-            .then(() =>
-            {
-                // Return the keys to the client
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(galleryKeys));
-            })
+        // Return the gallery keys to the client
+        return Promise.all(promises).then(() => galleryKeys);
     });
 });
 
@@ -328,13 +361,7 @@ app.post('/api/deleteGallery', function (req, res)
         const keyPath = 'galleries/' + writeKey + '.json';
         promises.push(fs.unlink(keyPath));
 
-        return Promise.all(promises)
-            .then(() =>
-            {
-                // Return the gallery key to the client
-                res.writeHead(200, { 'Content-Type': 'text/plain' });
-                res.end(galleryKey);
-            });
+        return Promise.all(promises).then(() => {galleryKey: galleryKey});
     });
 });
 
