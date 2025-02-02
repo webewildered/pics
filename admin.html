@@ -27,7 +27,7 @@ async function addGallery(keys)
     $('<button>').text('delete').click(() => deleteGallery(li, galleryKey)).appendTo(li);
     const galleryPath = 'galleries/' + galleryKey + '.json';
     fetch(galleryPath)
-        .then(response => responseToJson(response))
+        .then(response => responseToObject(response))
         .then(gallery =>
         {
             link.text(gallery.name + ' (' + galleryKey + ')');
@@ -41,26 +41,15 @@ async function addGallery(keys)
 // On page load
 window.onload = () =>
 {
-    // // oaz0d60nv2w94klk6d14
-    // fetch('galleries/g2ip6ai9800950rui1bz.json')
-    //     .then((response) =>
-    // {
-    //     console.log('status: ' + response.status);
-    //     response.text().then((text) => console.log('text: ' + text));
-    // })
-
     // Load the gallery list
     fetch('admin/' + getAdminKey() + '.json')
-        .then(response => responseToJson(response))
-        .then((json) =>
+        .then(response => responseToObject(response))
+        .then((galleryList) =>
         {
-            if (json.type === "admin")
+            $('#adminPanel').show();
+            for (const galleryKey of galleryList.galleries)
             {
-                $('#adminPanel').show();
-                for (const galleryKey of json.galleries)
-                {
-                    addGallery(galleryKey);
-                }
+                addGallery(galleryKey);
             }
         })
         .catch((error) =>
@@ -69,7 +58,8 @@ window.onload = () =>
         });
 }
 
-function responseToJson(response)
+// Takes a fetch response and parses it as json if successful, otherwise throws
+function responseToObject(response)
 {
     if (response.status !== 200)
     {
@@ -77,6 +67,12 @@ function responseToJson(response)
     }
     else
     {
+        // // Debug version
+        // return response.text().then((text) =>
+        // {
+        //     console.log('response: ' + text);
+        //     return JSON.parse(text);
+        // });
         return response.json();
     }
 }
@@ -85,7 +81,7 @@ function adminApi(api, request)
 {
     request.adminKey = getAdminKey();
     return fetch('api/' + api, { method: 'POST', body: JSON.stringify(request) })
-        .then((response) => responseToJson());
+        .then((response) => responseToObject(response));
 }
 
 // On create gallery button click
@@ -108,12 +104,13 @@ var n = 1;
 function test()
 {
     adminApi('test', {message: 'n ' + (n++)})
+        .then((response) => console.log(JSON.stringify(response)))
         .catch((err) => console.log(err));
 }
 
-function clear()
+function clearAll()
 {
-    adminApi('clear', {})
+    adminApi('clear', {abc:123})
         .catch((err) => console.log(err));
 }
 
@@ -129,6 +126,8 @@ function clear()
     </div>
     <br /><br />
     <button onclick="test()">test</button>
+    <br /><br />
+    <button onclick="clearAll()">clearAll</button>
     <br /><br />
     <div id="log"></span>
 </body>

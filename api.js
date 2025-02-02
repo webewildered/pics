@@ -123,7 +123,7 @@ function handleError(res, err)
     res.end(err);
 }
 
-// Verifies that the request body is json with a valid adminKey, and if so calls op(requestJson, res, adminJson).
+// Verifies that the request body is json with a valid adminKey, and if so calls op(requestJson, adminJson).
 // op() returns a promise resolving to the response to write in case of success.
 // Modifications that op() makes to adminJson are written back atomically.
 // Returns a Promise.
@@ -135,13 +135,14 @@ function adminOp(req, res, op)
             // Read the admin file (this validates the key)
             const adminKey = requestJson.adminKey;
             const adminPath = 'admin/' + adminKey + '.json';
-            return updateJsonAtomic(adminPath, (adminJson) => op(requestJson, res, adminJson))
+            let opResponse;
+            return updateJsonAtomic(adminPath, (adminJson) => op(requestJson, adminJson))
         })
-        .then(resObj =>
+        .then(opResult =>
         {
             // Return the keys to the client
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(resObj));
+            res.end(JSON.stringify(opResult));
         })
         .catch(err => handleError(res, err));
 }
@@ -181,10 +182,13 @@ function unlock(lockFile)
     } // else the lock was not held
 }
 
-// Atomically read-modify-write json file. The object in the file is passed to update, which can modify it. Returns a promise.
+// Atomically read-modify-write json file. The object in the file is passed to update, which can modify it. Returns a promise
+// that resolves to the return value of update.
 function updateJsonAtomic(path, update)
 {
     let handle;
+    let updateResult;
+    let json;
     return lock(path)
         .then((handleIn) =>
         {
@@ -193,9 +197,17 @@ function updateJsonAtomic(path, update)
         })
         .then((jsonStr) =>
         {
-            let json = JSON.parse(jsonStr);
-            update(json);
+            json = JSON.parse(jsonStr);
+            return update(json);
+        })
+        .then((updateResultIn) =>
+        {
+            updateResult = updateResultIn;
             return fs.writeFile(path, JSON.stringify(json));
+        })
+        .then(() =>
+        {
+            return updateResult
         })
         .finally(() => unlock(handle));
 }
@@ -234,7 +246,7 @@ function pause(t)
 
 app.post('/api/clear', function (req, res)
 {
-    adminOp(req, res, (requestJson, res, adminJson) =>
+    adminOp(req, res, (requestJson, adminJson) =>
     {
         function clearDirectory(directory) {
             return fs.stat(directory)
@@ -270,27 +282,29 @@ app.post('/api/clear', function (req, res)
 
 app.post('/api/test', function (req, res)
 {
-    let handle;
-    let json;
-    readRequest(req)
-        .then((jsonIn) =>
-        {
-            json = jsonIn; 
-            return lock('zzz.txt');
-        })
-        .then((handleIn) =>
-        {
-            handle = handleIn;
-            return fs.writeFile('zzz.txt', 'write ' + json.message);
-        })
-        .then(() =>
-        {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ok:'ok'}));
-        })
-        .then(() => pause(500))
-        .catch((err) => handleError(res, err))
-        .finally(() => unlock(handle));
+    const result = {abc:123};
+    adminOp(req, res, () => result);
+    // let handle;
+    // let json;
+    // readRequest(req)
+    //     .then((jsonIn) =>
+    //     {
+    //         json = jsonIn; 
+    //         return lock('zzz.txt');
+    //     })
+    //     .then((handleIn) =>
+    //     {
+    //         handle = handleIn;
+    //         return fs.writeFile('zzz.txt', 'write ' + json.message);
+    //     })
+    //     .then(() =>
+    //     {
+    //         res.writeHead(200, { 'Content-Type': 'application/json' });
+    //         res.end(JSON.stringify({ok:'ok'}));
+    //     })
+    //     .then(() => pause(500))
+    //     .catch((err) => handleError(res, err))
+    //     .finally(() => unlock(handle));
 });
 
 //
@@ -299,7 +313,7 @@ app.post('/api/test', function (req, res)
 
 app.post('/api/createGallery', function (req, res)
 {
-    adminOp(req, res, (requestJson, res, adminJson) =>
+    adminOp(req, res, (requestJson, adminJson) =>
     {
         const promises = [];
 
@@ -330,7 +344,7 @@ app.post('/api/createGallery', function (req, res)
 
 app.post('/api/deleteGallery', function (req, res)
 {
-    adminOp(req, res, (requestJson, res, adminJson, adminPath) =>
+    adminOp(req, res, (requestJson, adminJson) =>
     {
         const promises = [];
         const galleryKey = requestJson.galleryKey;
@@ -351,7 +365,6 @@ app.post('/api/deleteGallery', function (req, res)
         {
             throw new Error('gallery ' + galleryKey + ' was not in the admin list');
         }
-        promises.push(fs.writeFile(adminPath, JSON.stringify(adminJson)));
 
         // Delete the gallery file
         const galleryPath = 'galleries/' + galleryKey + '.json';
@@ -361,7 +374,8 @@ app.post('/api/deleteGallery', function (req, res)
         const keyPath = 'galleries/' + writeKey + '.json';
         promises.push(fs.unlink(keyPath));
 
-        return Promise.all(promises).then(() => {galleryKey: galleryKey});
+        let result = {galleryKey: galleryKey};
+        return Promise.all(promises).then(() => result);
     });
 });
 
