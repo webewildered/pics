@@ -52,7 +52,12 @@ body {
 
 #progressText {
     margin-left: 5px;
-    color: white;
+    color: #ddd;
+}
+
+#errorText {
+    margin-left: 5px;
+    color: orange;
 }
 
 #thumbContainer {

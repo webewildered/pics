@@ -249,6 +249,7 @@ async function upload(event)
     let bytesTotal = 0;
     let filesComplete = 0;
     let bytesComplete = 0;
+    let filesFailed = 0;
     function updateProgress()
     {
         if (filesComplete === filesTotal)
@@ -262,6 +263,14 @@ async function upload(event)
             $('#progressBar').css('width', Math.floor(100 * bytesComplete / bytesTotal) + '%');
             $('#progressText').show()
                 .text(filesComplete + '/' + filesTotal);
+        }
+        if (filesFailed === 0)
+        {
+            $('#errorText').hide()
+        }
+        else
+        {
+            $('#errorText').show().text(filesFailed + ' uploads failed!');
         }
     }
 
@@ -292,7 +301,14 @@ async function upload(event)
                     });
                 }
             })
-            .catch((err) => console.log(err));
+            .catch((err) =>
+            {
+                console.log(err);
+                filesComplete++;
+                bytesComplete += file.size;
+                filesFailed++;
+                updateProgress();
+            });
     }
 
     updateProgress();

@@ -7,14 +7,16 @@ const sharp = require('sharp');
 sharp.cache(false); // Otherwise it keeps files open which prevents deletion of temporaries
 const app = express();
 const path = require('path');
-const heicConvert = require('heic-jpg-exif');//require('heic-convert');
 const getExif = require('exif-async');
 const ffmpeg = require('fluent-ffmpeg');
+const { fork } = require('node:child_process');
+const process = require('node:process');
 
 //
 // Utilities
 //
 
+// Detects the type of the file. file:Buffer, fileName:String
 function getFileType(file, fileName)
 {
     // Try to discern the type from known bytes at the beginning of the file.
@@ -69,6 +71,7 @@ function getFileType(file, fileName)
     return null;
 }
 
+// Generates a random key string
 function makeKey()
 {
     const minValue = bases.fromBase36('00000');
@@ -88,6 +91,7 @@ function makeKey()
     return key;
 }
 
+// Reads an Express Request. Returns a promise that resolves to a string.
 function readRequest(req)
 {
     return new Promise((resolve, reject) =>
@@ -111,6 +115,7 @@ function readRequest(req)
     });
 }
 
+// Sends an Express Response with an error message, from either a String or an Error.
 function handleError(res, err)
 {
     err = (err instanceof Error) ? err.stack : err;
@@ -118,7 +123,8 @@ function handleError(res, err)
     res.end(err);
 }
 
-// Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath)
+// Verifies that the request body is json with a valid adminKey, and if so calls op(json, res, adminJson, adminPath).
+// Returns a Promise chain ending with the return from op().
 // TODO lock the admin file
 function adminOp(req, res, op)
 {
@@ -137,6 +143,7 @@ function adminOp(req, res, op)
         .catch(err => handleError(res, err));
 }
 
+// Locks a file. Returns a promise that resolves when the lock is acquired to a handle which can be passed to unlock().
 function lock(file, attempts = 20, delay = 10, backoff = 2, maxDelay = 1000)
 {
     const lockFile = file + '.lock';
@@ -162,6 +169,7 @@ function lock(file, attempts = 20, delay = 10, backoff = 2, maxDelay = 1000)
     });
 }
 
+// Unlocks a file. Takes the handle returned from lock(). Returns a promise that resolves when the lock is released.
 function unlock(lockFile)
 {
     if (lockFile !== undefined)
@@ -178,7 +186,7 @@ function updateJsonAtomic(path, update)
         .then((handleIn) =>
         {
             handle = handleIn;
-            return fs.readFile(path);
+            return fs.readFile(path, 'utf8');
         })
         .then((jsonStr) =>
         {
@@ -189,6 +197,30 @@ function updateJsonAtomic(path, update)
         .finally(() => unlock(handle));
 }
 
+// Converts a heic image to a jpg. Source and dest both paths. Forks a child process to do the conversion. Returns a promise
+// that resolves when the conversion completes / rejects if it fails.
+function heic2jpg(source, dest)
+{
+    return new Promise((resolve, reject) =>
+    {
+        const child = fork('heic2jpg.js', [source, dest], { stdio: ['inherit', 'inherit', 'pipe', 'ipc'] });
+        let err = '';
+        child.stderr.on('data', (data) => { err += data; });
+        child.on('close', (code) =>
+        {
+            if (code === 0)
+            {
+                resolve();
+            }
+            else
+            {
+                reject(err)
+            }
+        })
+    });
+}
+
+// Testing helper, returns a promise that resolves after t ms.
 function pause(t)
 {
     return new Promise((resolve, reject) =>
@@ -310,6 +342,12 @@ app.post('/api/deleteGallery', function (req, res)
 // Upload photos
 //
 
+function timems()
+{
+    const hrTime = process.hrtime.bigint()
+    return Number(hrTime / 1000n) / 1000 // ns -> ms
+}
+
 var multerStorage = multer.diskStorage(
     {
         destination: function (req, file, cb) { cb(null, 'originals') },
@@ -329,6 +367,15 @@ var multerOpts = {
 var upload = multer(multerOpts);
 app.post('/api/upload', upload.single('image'), async function (req, res)
 {
+    let lastTime = timems();
+    function logTime(label)
+    {
+        // let time = timems();
+        // let dt = time - lastTime;
+        // lastTime = time;
+        // console.log(label + ': ' + dt);
+    }
+
     let cleanup = []; // List of files to delete in case of failure
     let galleryKey;
     
@@ -357,6 +404,7 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
             
             if (type === 'jpeg' || type === 'heic')
             {
+                logTime('uploadImage ' + originalFileName);
                 return processImage(uploadedData, type, originalFileName);
             }
             else if (type === 'mp4' || type === 'qt')
@@ -384,18 +432,30 @@ app.post('/api/upload', upload.single('image'), async function (req, res)
                 res.end(JSON.stringify(galleryEntry));
             })
         })
-        .catch((err) => handleError(res, err))
-        .finally(() =>
+        .catch((err) =>
         {
+            handleError(res, err);
+
+            // TODO - the process*() functions need to add things to cleanup, and also remove (e.g. if they rename an original)
             for (const path of cleanup)
             {
                 fs.unlink(path);
             }
-        });
+        })
 });
 
 function processImage(image, imageType, originalFileName)
 {
+    let lastTime = timems();
+    function logTime(label)
+    {
+        // let time = timems();
+        // let dt = time - lastTime;
+        // lastTime = time;
+        // console.log(label + ': ' + dt);
+    }
+
+    const originalPath = 'originals/' + originalFileName;
     let fileName = originalFileName;
     let convertPromise;
     if (imageType === 'jpeg')
@@ -403,19 +463,16 @@ function processImage(image, imageType, originalFileName)
         // Move the file to the images directory. We don't need to convert it so we don't need to keep a separate original around.
         fileName = path.parse(fileName).name + '.jpg';
         originalFileName = '';
-        convertPromise = fs.rename('originals/' + originalFileName, 'images/' + fileName)
+        convertPromise = fs.rename(originalPath, 'images/' + fileName)
             .then(() => image);
     }
     else if (imageType === 'heic')
     {
         // Convert the heic to a jpeg
         fileName = makeKey() + '.jpg';
-        convertPromise = heicConvert(image)
-            .then((jpegImage) =>
-            {
-                return fs.writeFile('images/' + fileName, jpegImage)
-                    .then(() => jpegImage);
-            })
+        const jpgPath = 'images/' + fileName;
+        convertPromise = heic2jpg(originalPath, jpgPath)
+            .then(() => fs.readFile(jpgPath));
     }
     else
     {
@@ -424,6 +481,7 @@ function processImage(image, imageType, originalFileName)
 
     return convertPromise.then((jpegImage) =>
     {
+        logTime('convert ' + originalFileName)
         const promises = [];
 
         // Create the thumbnail
@@ -486,6 +544,7 @@ function processImage(image, imageType, originalFileName)
         // Return the gallery entry
         return Promise.all(promises).then(() =>
         {
+            logTime('process ' + originalFileName)
             return {
                 file: fileName,
                 thumb: thumbFileName,
