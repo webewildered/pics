@@ -43,8 +43,16 @@ var enableImageControls = true; // Whether to show the top and bottom bars over 
 var imagePressed = false; // true if the image has been clicked/touched and not yet released
 var imageMouseOrigin = new Point(); // Location where the image press began
 
-// Image roll pan
-var imageScrollX = new Scroll(); // Image pan
+const ImageTouchMode = Object.freeze(
+{
+    NONE: Symbol('None'),
+    NAV: Symbol('Nav'),
+    ZOOM: Symbol('Zoom'),
+});
+var imageTouchMode = ImageTouchMode.NONE;
+
+// Image navigation pan
+var imageScrollX = new Scroll();
 var imageScrollY = new Scroll();
 
 // Zoomed image pan and zoom
@@ -341,6 +349,10 @@ async function upload(event)
 
 function layout()
 {
+    const scale = Math.min(window.screen.width / 981, 1.0);
+    const viewport = document.querySelector('meta[name="viewport"]');
+    viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
+
     var width = $('#thumbContainer').width();
     const newThumbPitch = Math.ceil((width + thumbMargin) / (thumbRes + thumbMargin));
     const newThumbSize = Math.ceil((width + thumbMargin) / newThumbPitch - thumbMargin);
@@ -493,69 +505,132 @@ window.onload = () =>
     const imageFeeler = new Feeler($('#imageClick').get(0));
     imageFeeler.addEventListener('start', (event) => 
     {
-        if (event.touches.length == 1)
+        if (event.touches.length === 0)
         {
-            // Seems to be no deadzone for multitouch - grab immediately
-            if (!zoomScrollX.touch)
+            // Only interpret touch as navigation gesture if the image is at min zoom
+            if (zoomScrollZ.target !== getMinZoom(getActiveImage()))
             {
-                startImagePan();
+                imageTouchMode = ImageTouchMode.ZOOM;
             }
+        }
+        else if (event.touches.length === 1)
+        {
+            // Unless already in a navigation gesture, assume multitouch is zoom
+            if (imageTouchMode === ImageTouchMode.NONE)
+            {
+                imageTouchMode = ImageTouchMode.ZOOM;
+                
+                // Seems to be no deadzone for multitouch - grab immediately
+                if (!zoomScrollX.touch)
+                {
+                    startImagePan();
+                }
+            }
+
             zoomScrollZ.grab();
         }
-        else if (event.touches.length == 2)
+        else if (event.touches.length === 2)
         {
             event.reject();
         }
     });
     imageFeeler.addEventListener('end', (event) =>
     {
-        if (event.touches.length == 1)
+        if (imageTouchMode === ImageTouchMode.NAV)
         {
-            if (zoomScrollX.touch)
+            // Nav mode
+            if (event.touches.length == 1)
             {
-                // Release pan
-                endImagePan();
-            }
-            else
-            {
-                // Release tap
-                showImageBar(!enableImageControls, false); // toggle image bar with fade
-            }
-        }
-        else if (event.touches.length == 2)
-        {
-            zoomScrollZ.release();
-            zoomScrollX.v = 0;
-            zoomScrollY.v = 0;
-            zoomScrollZ.v = 0; // no momentum
-        }
-    });
-    imageFeeler.addEventListener('move', (event) =>
-    {
-        if (event.touches.length == 1)
-        {
-            if (zoomScrollX.touch)
-            {
-                const touch = event.touches[0];
-                moveImagePan(touch.pos.sub(touch.last));
-            }
-            else
-            {
-                startImagePan();
+                if (imageScrollX.touch)
+                {
+                    imageScrollX.release();
+                    // TODO: navigate
+                }
+                else
+                {
+                    // Release tap
+                    showImageBar(!enableImageControls, false); // toggle image bar with fade
+                }
+                imageTouchMode = ImageTouchMode.NONE;
             }
         }
         else
         {
-            const t0 = event.touches[0];
-            const t1 = event.touches[1];
-            const center = t0.pos.add(t1.pos).mul(0.5);
-            const lastCenter = t0.last.add(t1.last).mul(0.5);
-            const movement = center.sub(lastCenter);
-            moveImagePan(movement);
-
-            const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
-            zoomScrollZ.target += Math.log(scale);
-            setZoomCenter(center);
+            // Zoom mode
+            if (event.touches.length == 1)
+            {
+                if (zoomScrollX.touch)
+                {
+                    // Release pan
+                    endImagePan();
+                }
+                else
+                {
+                    // Release tap
+                    showImageBar(!enableImageControls, false); // toggle image bar with fade
+                }
+                imageTouchMode = ImageTouchMode.NONE;
+            }
+            else if (event.touches.length == 2)
+            {
+                zoomScrollZ.release();
+                zoomScrollX.v = 0;
+                zoomScrollY.v = 0;
+                zoomScrollZ.v = 0; // no momentum
+            }
+        }
+    });
+    imageFeeler.addEventListener('move', (event) =>
+    {
+        // If we didn't start zoomed in and this is a single finger touch, interpret it as a nav gesture
+        if (imageTouchMode === ImageTouchMode.NONE)
+        {
+            imageTouchMode = ImageTouchMode.NAV;
+        }
+        
+        if (imageTouchMode === ImageTouchMode.NAV)
+        {
+            // Nav mode
+            if (imageScrollX.touch)
+            {
+                for (const touch of event.touches)
+                {
+                    imageScrollX.target += touch.pos.sub(touch.last).x;
+                }
+            }
+            else
+            {
+                imageScrollX.grab();
+            }
+        }
+        else
+        {
+            // Zoom mode
+            if (event.touches.length == 1)
+            {
+                if (zoomScrollX.touch)
+                {
+                    const touch = event.touches[0];
+                    moveImagePan(touch.pos.sub(touch.last));
+                }
+                else
+                {
+                    startImagePan();
+                }
+            }
+            else
+            {
+                const t0 = event.touches[0];
+                const t1 = event.touches[1];
+                const center = t0.pos.add(t1.pos).mul(0.5);
+                const lastCenter = t0.last.add(t1.last).mul(0.5);
+                const movement = center.sub(lastCenter);
+                moveImagePan(movement);
+    
+                const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
+                zoomScrollZ.target += Math.log(scale);
+                setZoomCenter(center);
+            }   
         }
     });
 
@@ -895,8 +970,9 @@ function updateImage(dt)
     }
 
     // Animate scroll
-    imageScrollX.update(dt, 0, 0);
-    imageScrollY.update(dt, 0, 0);
+    const imageScrollLimit = imageScrollX.touch ? 10000 : 0; // Scroll freely while grabbed, snap when released
+    imageScrollX.update(dt, -imageScrollLimit, imageScrollLimit);
+    imageScrollY.update(dt, -imageScrollLimit, imageScrollLimit);
     zoomScrollX.update(dt, scrollMin.x, scrollMax.x);
     zoomScrollY.update(dt, scrollMin.y, scrollMax.y);
 
