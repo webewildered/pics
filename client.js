@@ -544,7 +544,17 @@ window.onload = () =>
                 if (imageScrollX.touch)
                 {
                     imageScrollX.release();
-                    // TODO: navigate
+                    
+                    // If dragged past the halfway point, or released with velocity (swiped), navigate
+                    const x = imageScrollX.x;
+                    const v = imageScrollX.v;
+                    const swipe = (Math.abs(v) > 200);
+                    const navSwipe = (swipe && Math.sign(x) == Math.sign(v));
+                    const navDrag = (!swipe && Math.abs(x) > getClientSize().x / 4);
+                    if (navSwipe || navDrag)
+                    {
+                        onNav(-Math.sign(x));
+                    }
                 }
                 else
                 {
