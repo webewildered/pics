@@ -426,7 +426,11 @@ window.onload = () =>
         {
             if (json.galleryKey)
             {
+                // Can use the key to modify the gallery
                 writeKey = galleryKey;
+                $('#galleryBar').removeAttr('hidden');
+
+                // Still need to load the gallery itself
                 galleryKey = json.galleryKey;
                 loadGalleryJson(galleryKey)
                     .then((json) => { loadGallery(json) })

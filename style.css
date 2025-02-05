@@ -28,6 +28,10 @@ body {
     flex-flow: column;
 }
 
+[hidden] {
+    display: none !important;
+}
+
 #galleryBar {
     background-color: #333;
     padding: 10px;
