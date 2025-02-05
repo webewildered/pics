@@ -47,6 +47,7 @@ const ImageTouchMode = Object.freeze(
 {
     NONE: Symbol('None'),
     NAV: Symbol('Nav'),
+    BACK: Symbol('Back'),
     ZOOM: Symbol('Zoom'),
 });
 var imageTouchMode = ImageTouchMode.NONE;
@@ -536,12 +537,10 @@ window.onload = () =>
     });
     imageFeeler.addEventListener('end', (event) =>
     {
-        if (imageTouchMode === ImageTouchMode.NAV)
+        switch (imageTouchMode)
         {
-            // Nav mode
-            if (event.touches.length == 1)
-            {
-                if (imageScrollX.touch)
+            case ImageTouchMode.NAV:
+                if (event.touches.length == 1)
                 {
                     imageScrollX.release();
                     
@@ -555,39 +554,52 @@ window.onload = () =>
                     {
                         onNav(-Math.sign(x));
                     }
+                    imageTouchMode = ImageTouchMode.NONE;
                 }
-                else
+                break;
+            case ImageTouchMode.BACK:
+                if (event.touches.length == 1)
+                {
+                    imageScrollY.release();
+                    
+                    // If dragged down, return to thumbnail view
+                    if (imageScrollY.x > 0)
+                    {
+                        clickBackButton();
+                    }
+                    imageTouchMode = ImageTouchMode.NONE;
+                }
+                break;
+            case ImageTouchMode.ZOOM:
+                if (event.touches.length == 1)
+                {
+                    if (zoomScrollX.touch)
+                    {
+                        // Release pan
+                        endImagePan();
+                    }
+                    else
+                    {
+                        // Release tap
+                        showImageBar(!enableImageControls, false); // toggle image bar with fade
+                    }
+                    imageTouchMode = ImageTouchMode.NONE;
+                }
+                else if (event.touches.length == 2)
+                {
+                    zoomScrollZ.release();
+                    zoomScrollX.v = 0;
+                    zoomScrollY.v = 0;
+                    zoomScrollZ.v = 0; // no momentum
+                }
+                break;
+            case ImageTouchMode.NONE:
+                if (event.touches.length == 1)
                 {
                     // Release tap
                     showImageBar(!enableImageControls, false); // toggle image bar with fade
                 }
-                imageTouchMode = ImageTouchMode.NONE;
-            }
-        }
-        else
-        {
-            // Zoom mode
-            if (event.touches.length == 1)
-            {
-                if (zoomScrollX.touch)
-                {
-                    // Release pan
-                    endImagePan();
-                }
-                else
-                {
-                    // Release tap
-                    showImageBar(!enableImageControls, false); // toggle image bar with fade
-                }
-                imageTouchMode = ImageTouchMode.NONE;
-            }
-            else if (event.touches.length == 2)
-            {
-                zoomScrollZ.release();
-                zoomScrollX.v = 0;
-                zoomScrollY.v = 0;
-                zoomScrollZ.v = 0; // no momentum
-            }
+                break;
         }
     });
     imageFeeler.addEventListener('move', (event) =>
@@ -595,52 +607,73 @@ window.onload = () =>
         // If we didn't start zoomed in and this is a single finger touch, interpret it as a nav gesture
         if (imageTouchMode === ImageTouchMode.NONE)
         {
-            imageTouchMode = ImageTouchMode.NAV;
-        }
-        
-        if (imageTouchMode === ImageTouchMode.NAV)
-        {
-            // Nav mode
-            if (imageScrollX.touch)
+            const touch = event.touches[0];
+            const absDelta = touch.pos.sub(touch.last).abs();
+            if (absDelta.x > absDelta.y)
             {
-                for (const touch of event.touches)
-                {
-                    imageScrollX.target += touch.pos.sub(touch.last).x;
-                }
+                imageTouchMode = ImageTouchMode.NAV;
             }
             else
             {
-                imageScrollX.grab();
+                imageTouchMode = ImageTouchMode.BACK;
             }
         }
-        else
+
+        switch (imageTouchMode)
         {
-            // Zoom mode
-            if (event.touches.length == 1)
-            {
-                if (zoomScrollX.touch)
+            case ImageTouchMode.NAV:
+                if (imageScrollX.touch)
                 {
-                    const touch = event.touches[0];
-                    moveImagePan(touch.pos.sub(touch.last));
+                    for (const touch of event.touches)
+                    {
+                        imageScrollX.target += touch.pos.sub(touch.last).x;
+                    }
                 }
                 else
                 {
-                    startImagePan();
+                    imageScrollX.grab();
                 }
-            }
-            else
-            {
-                const t0 = event.touches[0];
-                const t1 = event.touches[1];
-                const center = t0.pos.add(t1.pos).mul(0.5);
-                const lastCenter = t0.last.add(t1.last).mul(0.5);
-                const movement = center.sub(lastCenter);
-                moveImagePan(movement);
-    
-                const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
-                zoomScrollZ.target += Math.log(scale);
-                setZoomCenter(center);
-            }   
+                break;
+            case ImageTouchMode.BACK:
+                if (imageScrollY.touch)
+                {
+                    for (const touch of event.touches)
+                    {
+                        imageScrollY.target += touch.pos.sub(touch.last).y;
+                    }
+                }
+                else
+                {
+                    imageScrollY.grab();
+                }
+                break;
+            case ImageTouchMode.ZOOM:
+                if (event.touches.length == 1)
+                {
+                    if (zoomScrollX.touch)
+                    {
+                        const touch = event.touches[0];
+                        moveImagePan(touch.pos.sub(touch.last));
+                    }
+                    else
+                    {
+                        startImagePan();
+                    }
+                }
+                else
+                {
+                    const t0 = event.touches[0];
+                    const t1 = event.touches[1];
+                    const center = t0.pos.add(t1.pos).mul(0.5);
+                    const lastCenter = t0.last.add(t1.last).mul(0.5);
+                    const movement = center.sub(lastCenter);
+                    moveImagePan(movement);
+        
+                    const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
+                    zoomScrollZ.target += Math.log(scale);
+                    setZoomCenter(center);
+                }
+                break;
         }
     });
 
@@ -980,9 +1013,10 @@ function updateImage(dt)
     }
 
     // Animate scroll
-    const imageScrollLimit = imageScrollX.touch ? 10000 : 0; // Scroll freely while grabbed, snap when released
-    imageScrollX.update(dt, -imageScrollLimit, imageScrollLimit);
-    imageScrollY.update(dt, -imageScrollLimit, imageScrollLimit);
+    const navScrollLimit = imageScrollX.touch ? 1e10 : 0; // Scroll freely while grabbed, snap when released
+    imageScrollX.update(dt, -navScrollLimit, navScrollLimit);
+    const backScrollLimit = imageScrollY.touch ? 1e10 : 0;
+    imageScrollY.update(dt, 0, backScrollLimit);
     zoomScrollX.update(dt, scrollMin.x, scrollMax.x);
     zoomScrollY.update(dt, scrollMin.y, scrollMax.y);
 
