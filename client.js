@@ -1,14 +1,13 @@
 import Point from './point.js';
 import Scroll from './scroll.js';
 import Feeler from './feeler.js';
+import Gallery from './gallery.js'
 
 //
 // Global parameters
 //
 
-var galleryKey;
-var writeKey;
-var gallery;
+const gallery = new Gallery();
 var hasMouse = true;
 
 //
@@ -85,7 +84,7 @@ function styleImage(imageElement, isEnd)
 
 function createImage(index)
 {
-    const galleryEntry = gallery.images[index];
+    const galleryEntry = gallery.view[index];
     const sourcePath = 'images/' + galleryEntry.file;
     const isVideo = galleryEntry.file.endsWith('.mp4');
     let image;
@@ -114,7 +113,7 @@ function updateActiveImage()
 {
     // Get the current active image
     const image = images[numNeighborImages];
-    const galleryEntry = gallery.images[image.get(0).galleryIndex];
+    const galleryEntry = gallery.view[image.get(0).galleryIndex];
 
     // Update the metadata
     const date = new Date(galleryEntry.date);
@@ -149,7 +148,7 @@ function clickThumb(thumbIndex)
     for (let i = -numNeighborImages; i <= numNeighborImages; i++)
     {
         const imageIndex = thumbIndex + i;
-        if (imageIndex < 0 || imageIndex >= gallery.images.length)
+        if (imageIndex < 0 || imageIndex >= gallery.view.length)
         {
             images.push(null);
         }
@@ -208,7 +207,7 @@ function onNav(direction)
     const currentIndex = getActiveImage().get(0).galleryIndex;
     const newIndex = currentIndex + direction * (numNeighborImages + 1);
     let newImage = null;
-    if (newIndex >= 0 && newIndex < gallery.images.length)
+    if (newIndex >= 0 && newIndex < gallery.view.length)
     {
         newImage = createImage(newIndex);
     }
@@ -292,7 +291,7 @@ async function upload(event)
 
         const file = files.files[nextFileIndex++];
         const formData = new FormData();
-        formData.append('writeKey', writeKey);
+        formData.append('writeKey', gallery.writeKey);
         formData.append('image', file);
         fetch('api/upload', { method: 'POST', body: formData })
             .then((response) =>
@@ -310,8 +309,8 @@ async function upload(event)
                     return response.json().then((galleryEntry) =>
                     {
                         console.log('Added ' + galleryEntry.title);
-                        galleryEntry.index = gallery.images.length;
-                        gallery.images.push(galleryEntry);
+                        galleryEntry.index = gallery.view.length;
+                        gallery.view.push(galleryEntry);
                         updateThumbImage(galleryEntry.index);
                     });
                 }
@@ -346,9 +345,9 @@ function updateThumbImage(index, thumb)
     }
 
     // TODO scrolling
-    if (gallery && index < gallery.images.length)
+    if (gallery && index < gallery.view.length)
     {
-        thumb.attr('src', 'thumbs/' + gallery.images[index].thumb);
+        thumb.attr('src', 'thumbs/' + gallery.view[index].thumb);
         thumb.removeAttr('hidden');
     }
     else
@@ -408,17 +407,21 @@ window.onresize = layout;
 var hasMouse = true;
 window.onload = () =>
 {
+    gallery.addEventListener('change', (event) =>
+    {
+        const minThumb = thumbPitch * calcThumbRowOffset();
+        const maxThumb = minThumb + $('#thumbs').children().length - 1;
+        const minIndex = Math.max(minThumb, event.minIndex) - minThumb;
+        const maxIndex = Math.min(maxThumb, event.maxIndex) - minThumb;
+        for (let i = minIndex; i <= maxIndex; i++)
+        {
+            updateThumbImage(i);
+        }
+    });
+
     // Load parameters
     const params = new URLSearchParams(window.location.search);
-    for (const key of params.keys())
-    {
-        const val = params.get(key);
-        if (val === '')
-        {
-            galleryKey = key;
-        }
-    }
-
+    
     // If there is no mouse, then hide mouse controls
     const mouseSetting = params.get('mouse');
     if (mouseSetting && (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1'))
@@ -438,50 +441,29 @@ window.onload = () =>
         }
     }
 
-    // Load the gallery
-    const loadGallery = (galleryIn) =>
+    // Get the gallery key and use it to load the gallery
+    for (const key of params.keys())
     {
-        gallery = galleryIn;
-        for (let i = 0; i < gallery.images.length; i++)
+        const val = params.get(key);
+        if (val === '')
         {
-            const galleryEntry = gallery.images[i];
-            galleryEntry.index = i;
-            updateThumbImage(i);
+            gallery.load(key)
+            .then(() =>
+            {
+                if (gallery.writeKey)
+                {
+                    $('#galleryBar').removeAttr('hidden');
+                }
+            })
+            .catch((err) =>
+            {
+                $('<span style="color:white">error: ' + err + '</span>').appendTo(thumbs);
+            });
+            break;
         }
     }
-    const loadGalleryJson = (key) =>
-    {
-        return fetch('galleries/' + key + '.json')
-            .then((response) => response.json())
-    }
-    const thumbs = $('#thumbs');
-    loadGalleryJson(galleryKey)
-        .then((json) =>
-        {
-            if (json.galleryKey)
-            {
-                // Can use the key to modify the gallery
-                writeKey = galleryKey;
-                $('#galleryBar').removeAttr('hidden');
-
-                // Still need to load the gallery itself
-                galleryKey = json.galleryKey;
-                loadGalleryJson(galleryKey)
-                    .then((json) => { loadGallery(json) })
-                    .catch((error) =>
-                    {
-                        $('<span style="color:white">error: ' + error + '</span>').appendTo(thumbs);
-                    });
-            }
-            else
-            {
-                loadGallery(json);
-            }
-        })
-        .catch((error) =>
-        {
-            $('<span>error: ' + error + '</span>').appendTo(thumbs);
-        });
+    
+    // Lay out the thumbnails
     layout();
 
     // Handle input events
@@ -930,7 +912,7 @@ function updateThumbs(dt)
     const thumbContainer = $('#thumbContainer');
 
     // Calculate the scroll range
-    const virtualThumbRows = Math.ceil(gallery.images.length / thumbPitch);
+    const virtualThumbRows = Math.ceil(gallery.view.length / thumbPitch);
     const virtualThumbHeight = virtualThumbRows * thumbSize;
     const minScroll = 0;
     const panelHeight = thumbContainer.height();
@@ -957,7 +939,7 @@ function updateThumbs(dt)
 }
 
 function getClientSize() { return new Point(window.innerWidth, window.innerHeight); }
-function getGalleryEntry(image) { return gallery.images[image.get(0).galleryIndex]; }
+function getGalleryEntry(image) { return gallery.view[image.get(0).galleryIndex]; }
 function getActiveImage() { return images[numNeighborImages]; }
 function getNativeSize(image)
 {
@@ -1086,7 +1068,7 @@ function updateImage(dt)
         {
             continue;
         }
-        const galleryEntry = gallery.images[image.get(0).galleryIndex];
+        const galleryEntry = gallery.view[image.get(0).galleryIndex];
         const offset = i - numNeighborImages;
         
         const scaledSize = getScaledSize(image, offset == 0);
