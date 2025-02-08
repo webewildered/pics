@@ -1,223 +1,103 @@
-import Point from './point.js';
-import Scroll from './scroll.js';
 import Feeler from './feeler.js';
 import Gallery from './gallery.js';
 import * as thumbsView from './thumbs.js';
-
-//
-// Global parameters
-//
+import * as imageView from './image.js';
+import * as fade from './fade.js'
 
 const gallery = new Gallery();
-thumbsView.init(gallery);
+
+//
+// Read parameters
+//
+
+const params = new URLSearchParams(window.location.search);
+
+// If there is no mouse, then hide mouse controls
 var hasMouse = true;
-
-//
-// GUI mode
-//
-
-const galleryMode = "galleryMode";
-const imageMode = "imageMode";
-var focus = galleryMode;
-
-//
-// Image viewer
-//
-
-const numNeighborImages = 1; // Number of image/video elements to each side of the active one.
-const numTotalImages = numNeighborImages * 2 + 1;
-var images = []; // List of image/video elements in order from left to right. Active one is in the middle of the array.
-var zoomCenter = new Point(); // Point in image space to zoom about, relative to the center of the image
-const maxZoom = Math.log(4);
-var enableImageControls = true; // Whether to show the top and bottom bars over the image
-var imagePressed = false; // true if the image has been clicked/touched and not yet released
-var imageMouseOrigin = new Point(); // Location where the image press began
-
-const ImageTouchMode = Object.freeze(
+const mouseSetting = params.get('mouse');
+if (mouseSetting && (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1'))
 {
-    NONE: Symbol('None'),
-    NAV: Symbol('Nav'),
-    BACK: Symbol('Back'),
-    ZOOM: Symbol('Zoom'),
-});
-var imageTouchMode = ImageTouchMode.NONE;
-
-// Image navigation pan
-var imageScrollX = new Scroll();
-var imageScrollY = new Scroll();
-
-// Zoomed image pan and zoom
-var zoomScrollX = new Scroll();
-var zoomScrollY = new Scroll();
-var zoomScrollZ = new Scroll();
-zoomScrollZ.boundStiffness = 0.8;
-var zoomScrollRangeExtension = new Point();
-
-function createImage(index)
+    hasMouse = true
+}
+else if (mouseSetting && (mouseSetting.toLowerCase() === 'false' || mouseSetting === '0'))
 {
-    const galleryEntry = gallery.view[index];
-    const sourcePath = 'images/' + galleryEntry.file;
-    const isVideo = galleryEntry.file.endsWith('.mp4');
-    let image;
-    if (isVideo)
+    hasMouse = false;
+}
+else
+{
+    const matchMedia = window.matchMedia || window.msMatchMedia;
+    if (matchMedia)
     {
-        image = $('<video>');
-        $('<source>').attr('src', sourcePath).appendTo(image);
+        hasMouse = matchMedia("(pointer:fine)").matches;
     }
-    else
-    {
-        image = $('<img>')
-            .attr('src', sourcePath)
-            .attr('draggable', false);
-    }
-    image
-        .addClass('mainImage')
-        .addClass('noSelect')
-    image.appendTo('#imageView');
-
-    // Attach the gallery entry to the image
-    image.get(0).galleryIndex = index;
-    return image;
 }
 
-function updateActiveImage()
+// Get the gallery key and use it to load the gallery
+var galleryKey;
+for (const key of params.keys())
 {
-    // Get the current active image
-    const image = images[numNeighborImages];
-    const galleryEntry = gallery.view[image.get(0).galleryIndex];
-
-    // Update the metadata
-    const date = new Date(galleryEntry.date);
-    const format = new Intl.DateTimeFormat();
-    format.dateStyle = 'full';
-    $('#time').text(date.toLocaleString(format));
-    $('#location').text(galleryEntry.location);
-
-    // Play video
-    if (image.prop('nodeName').toLowerCase() === 'video')
+    const val = params.get(key);
+    if (val === '')
     {
-        const video = image.get(0);
-        video.play();
+        galleryKey = key;
+        break;
     }
-
-    // Toggle nav button visibility
-    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').attr('hidden', true) : $('#navButtonLeft').removeAttr('hidden');
-    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').attr('hidden', true) : $('#navButtonRight').removeAttr('hidden');
-
-    // Reset zoom state
-    zoomScrollZ.reset(getMinZoom(image));
 }
 
-thumbsView.addEventListener('click', (event) =>
+window.onload = () =>
 {
-    fade($('#imageView'), true, 0.1);
-    let thumbIndex = event.index;
-
-    // Create the images
-    images = [];
-    for (let i = -numNeighborImages; i <= numNeighborImages; i++)
+    // Init modules
+    thumbsView.init(gallery);
+    thumbsView.addEventListener('click', (event) =>
     {
-        const imageIndex = thumbIndex + i;
-        if (imageIndex < 0 || imageIndex >= gallery.view.length)
+        let thumbIndex = event.index;
+        imageView.show(thumbIndex);
+        thumbsView.setFocus(false);
+    });
+
+    imageView.init(gallery, hasMouse);
+    imageView.addEventListener('close', () =>
+    {
+        thumbsView.setFocus(true);
+    });
+
+    // Set a fixed scale. Zoom doesn't work and this prevents responsive displays from auto-scaling to fit content that should be outside of the viewport.
+    const scale = Math.min(window.screen.width / 981, 1.0);
+    const viewport = document.querySelector('meta[name="viewport"]');
+    viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
+
+    // Load the gallery
+    gallery.load(galleryKey)
+    .then(() =>
+    {
+        if (gallery.writeKey)
         {
-            images.push(null);
+            $('#galleryBar').removeAttr('hidden');
         }
-        else
-        {
-            images.push(createImage(imageIndex));
-        }
-    }
-    
-    // Reset scroll state
-    imageScrollX.reset();
-    imageScrollY.reset();
-    zoomScrollX.reset();
-    zoomScrollY.reset();
-    zoomScrollZ.reset();
-    
-    updateActiveImage();
-    
-    focus = imageMode;
-    enableImageControls = true;
-    showImageBar(true, true); // show image bar immediate
-});
-
-function clickBackButton()
-{
-    // Remove all images
-    if (images.length)
+    })
+    .catch((err) =>
     {
-        for (const image of images)
-        {
-            if (image !== null)
-            {
-                image.remove();
-            }
-        }
-        images = [];
-        fade($('#imageView'), false, 0.1);
-        focus = galleryMode;
-    }
+        console.log('Error loading gallery: ' + err);
+    });
+    
+    // Handle input events
+    Feeler.tap($('#uploadButton').get(0), upload);
+    
+    // Forward taps on the browse button to its click handler. Don't override the click handler itself.
+    Feeler.tap($('#fileInput').get(0), () => { $('#fileInput').click(); }, false);
+
+    // Disable touch on elements that don't otherwise have touch control.
+    // This prevents accidentally changing the browser zoom while pinch zooming an image.
+    const disableTouch = (jqElem) => jqElem.each((idx, elem) => Feeler.disable(elem));
+    disableTouch($('#galleryBar'));
+    disableTouch($('.imageBar'));
+
+    // Animate
+    tLast = window.performance.now();
+    requestAnimationFrame(animate);
 }
 
-function onNav(direction)
-{
-    if (direction !== 1 && direction !== -1)
-    {
-        throw new Error('Invalid navigation direction ' + direction);
-    }
-
-    if (images[numNeighborImages + direction] === null)
-    {
-        // Already on the first or last image
-        return;
-    }
-
-    // Create the new image
-    const currentIndex = getActiveImage().get(0).galleryIndex;
-    const newIndex = currentIndex + direction * (numNeighborImages + 1);
-    let newImage = null;
-    if (newIndex >= 0 && newIndex < gallery.view.length)
-    {
-        newImage = createImage(newIndex);
-    }
-
-    // Shift it into the array
-    let oldImage;
-    if (direction > 0)
-    {
-        // Remove at beginning, insert at end
-        oldImage = images[0];
-        images.splice(0, 1);
-        images.push(newImage);
-    }
-    else
-    {
-        // Remove at end, insert at beginning
-        oldImage = images.pop();
-        images.splice(0, 0, newImage);
-    }
-
-    // Remove any old image shifted out of the array
-    if (oldImage !== null)
-    {
-        oldImage.remove();
-    }
-
-    // Shift scroll
-    imageScrollX.x += direction * getClientSize().x;
-
-    // Display
-    updateActiveImage();
-}
-
-function showImageBar(show, immediate)
-{
-    enableImageControls = show;
-    fade($('.imageBar'), enableImageControls, immediate ? 0 : 0.1);
-}
-
-async function upload(event)
+function upload(event)
 {
     event.preventDefault();
     const files = document.getElementById('fileInput');
@@ -279,7 +159,6 @@ async function upload(event)
                     return response.json().then((galleryEntry) =>
                     {
                         console.log('Added ' + galleryEntry.title);
-                        galleryEntry.index = gallery.view.length; // TODO probably shouldn't need to store this anymore
                         gallery.add(galleryEntry);
                     });
                 }
@@ -306,603 +185,9 @@ async function upload(event)
     updateProgress();
 }
 
-var hasMouse = true;
-window.onload = () =>
-{
-    // Set a fixed scale. Zoom doesn't work and this prevents responsive displays from auto-scaling to fit content that should be outside of the viewport.
-    const scale = Math.min(window.screen.width / 981, 1.0);
-    const viewport = document.querySelector('meta[name="viewport"]');
-    viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
-
-    // Load parameters
-    const params = new URLSearchParams(window.location.search);
-    
-    // If there is no mouse, then hide mouse controls
-    const mouseSetting = params.get('mouse');
-    if (mouseSetting && (mouseSetting.toLowerCase() === 'true' || mouseSetting === '1'))
-    {
-        hasMouse = true
-    }
-    else if (mouseSetting && (mouseSetting.toLowerCase() === 'false' || mouseSetting === '0'))
-    {
-        hasMouse = false;
-    }
-    else
-    {
-        const matchMedia = window.matchMedia || window.msMatchMedia;
-        if (matchMedia)
-        {
-            hasMouse = matchMedia("(pointer:fine)").matches;
-        }
-    }
-
-    // Get the gallery key and use it to load the gallery
-    for (const key of params.keys())
-    {
-        const val = params.get(key);
-        if (val === '')
-        {
-            gallery.load(key)
-            .then(() =>
-            {
-                if (gallery.writeKey)
-                {
-                    $('#galleryBar').removeAttr('hidden');
-                }
-            })
-            .catch((err) =>
-            {
-                console.log('Error loading gallery: ' + err);
-            });
-            break;
-        }
-    }
-    
-    // Handle input events
-    Feeler.tap($('#uploadButton').get(0), upload);
-    Feeler.tap($('#backButton').get(0), clickBackButton);
-    Feeler.tap($('#navButtonLeft').get(0), () => onNav(-1));
-    Feeler.tap($('#navButtonRight').get(0), () => onNav(1));
-    $('#imageClick').on('mousedown', onImageMousedown);
-    $('#imageClick').on('mousemove', onImageMousemove);
-    
-    // Forward taps on the browse button to its click handler. Don't override the click handler itself.
-    Feeler.tap($('#fileInput').get(0), () => { $('#fileInput').click(); }, false);
-
-    // Disable touch on elements that don't otherwise have touch control.
-    // This prevents accidentally changing the browser zoom while pinch zooming an image.
-    const disableTouch = (jqElem) => jqElem.each((idx, elem) => Feeler.disable(elem));
-    disableTouch($('#galleryBar'));
-    disableTouch($('.imageBar'));
-
-    // Image touch control
-    const imageFeeler = new Feeler($('#imageClick').get(0));
-    imageFeeler.addEventListener('start', (event) => 
-    {
-        if (event.touches.length === 0)
-        {
-            // Only interpret touch as navigation gesture if the image is at min zoom
-            if (zoomScrollZ.target !== getMinZoom(getActiveImage()))
-            {
-                imageTouchMode = ImageTouchMode.ZOOM;
-            }
-        }
-        else if (event.touches.length === 1)
-        {
-            // Unless already in a navigation gesture, assume multitouch is zoom
-            if (imageTouchMode === ImageTouchMode.NONE)
-            {
-                imageTouchMode = ImageTouchMode.ZOOM;
-                
-                // Seems to be no deadzone for multitouch - grab immediately
-                if (!zoomScrollX.touch)
-                {
-                    startImagePan();
-                }
-            }
-
-            zoomScrollZ.grab();
-        }
-        else if (event.touches.length === 2)
-        {
-            event.reject();
-        }
-    });
-    imageFeeler.addEventListener('end', (event) =>
-    {
-        switch (imageTouchMode)
-        {
-            case ImageTouchMode.NAV:
-                if (event.touches.length == 1)
-                {
-                    imageScrollX.release();
-                    
-                    // If dragged past the halfway point, or released with velocity (swiped), navigate
-                    const x = imageScrollX.x;
-                    const v = imageScrollX.v;
-                    const swipe = (Math.abs(v) > 200);
-                    const navSwipe = (swipe && Math.sign(x) == Math.sign(v));
-                    const navDrag = (!swipe && Math.abs(x) > getClientSize().x / 4);
-                    if (navSwipe || navDrag)
-                    {
-                        onNav(-Math.sign(x));
-                    }
-                    imageTouchMode = ImageTouchMode.NONE;
-                }
-                break;
-            case ImageTouchMode.BACK:
-                if (event.touches.length == 1)
-                {
-                    imageScrollY.release();
-                    
-                    // If dragged down, return to thumbnail view
-                    if (imageScrollY.x > 0)
-                    {
-                        clickBackButton();
-                    }
-                    imageTouchMode = ImageTouchMode.NONE;
-                }
-                break;
-            case ImageTouchMode.ZOOM:
-                if (event.touches.length == 1)
-                {
-                    if (zoomScrollX.touch)
-                    {
-                        // Release pan
-                        endImagePan();
-                    }
-                    else
-                    {
-                        // Release tap
-                        showImageBar(!enableImageControls, false); // toggle image bar with fade
-                    }
-                    imageTouchMode = ImageTouchMode.NONE;
-                }
-                else if (event.touches.length == 2)
-                {
-                    zoomScrollZ.release();
-                    zoomScrollX.v = 0;
-                    zoomScrollY.v = 0;
-                    zoomScrollZ.v = 0; // no momentum
-                }
-                break;
-            case ImageTouchMode.NONE:
-                if (event.touches.length == 1)
-                {
-                    // Release tap
-                    showImageBar(!enableImageControls, false); // toggle image bar with fade
-                }
-                break;
-        }
-    });
-    imageFeeler.addEventListener('move', (event) =>
-    {
-        // If we didn't start zoomed in and this is a single finger touch, interpret it as a nav gesture
-        if (imageTouchMode === ImageTouchMode.NONE)
-        {
-            const touch = event.touches[0];
-            const absDelta = touch.pos.sub(touch.last).abs();
-            if (absDelta.x > absDelta.y)
-            {
-                imageTouchMode = ImageTouchMode.NAV;
-            }
-            else
-            {
-                imageTouchMode = ImageTouchMode.BACK;
-            }
-        }
-
-        switch (imageTouchMode)
-        {
-            case ImageTouchMode.NAV:
-                if (imageScrollX.touch)
-                {
-                    for (const touch of event.touches)
-                    {
-                        imageScrollX.target += touch.pos.sub(touch.last).x;
-                    }
-                }
-                else
-                {
-                    imageScrollX.grab();
-                }
-                break;
-            case ImageTouchMode.BACK:
-                if (imageScrollY.touch)
-                {
-                    for (const touch of event.touches)
-                    {
-                        imageScrollY.target += touch.pos.sub(touch.last).y;
-                    }
-                }
-                else
-                {
-                    imageScrollY.grab();
-                }
-                break;
-            case ImageTouchMode.ZOOM:
-                if (event.touches.length == 1)
-                {
-                    if (zoomScrollX.touch)
-                    {
-                        const touch = event.touches[0];
-                        moveImagePan(touch.pos.sub(touch.last));
-                    }
-                    else
-                    {
-                        startImagePan();
-                    }
-                }
-                else
-                {
-                    const t0 = event.touches[0];
-                    const t1 = event.touches[1];
-                    const center = t0.pos.add(t1.pos).mul(0.5);
-                    const lastCenter = t0.last.add(t1.last).mul(0.5);
-                    const movement = center.sub(lastCenter);
-                    moveImagePan(movement);
-        
-                    const scale = t0.pos.distance(t1.pos) / t0.last.distance(t1.last);
-                    zoomScrollZ.target += Math.log(scale);
-                    setZoomCenter(center);
-                }
-                break;
-        }
-    });
-
-    // Animate
-    tLast = window.performance.now();
-    requestAnimationFrame(animate);
-}
-
-//
-// Image pan input
-//
-
-function startImagePan()
-{
-    zoomScrollX.grab();
-    zoomScrollY.grab();
-}
-
-function endImagePan()
-{
-    zoomScrollX.release();
-    zoomScrollY.release();
-}
-
-function moveImagePan(delta)
-{
-    zoomScrollX.target += delta.x;
-    zoomScrollY.target += delta.y;
-}
-
-//
-// PC input handlers
-//
-
-function onImageMousedown(event)
-{
-    imagePressed = true;
-    imageMouseOrigin = new Point(event.clientX, event.clientY);
-}
-
-function onImageMousemove(event)
-{
-    if (imagePressed)
-    {
-        let imageMousePos = new Point(event.clientX, event.clientY);
-        let imageMouseDelta = imageMousePos.sub(imageMouseOrigin);
-        if (!zoomScrollX.touch)
-        {
-            const deadZone = 5; // Distance the mouse must move before beginning to drag the image
-            const distSq = imageMouseDelta.lengthSquared();
-            if (distSq > deadZone * deadZone)
-            {
-                startImagePan();
-                imageMouseOrigin = imageMouseOrigin.add(imageMouseDelta.mul(deadZone / Math.sqrt(distSq))).round(); // Where the mouse exits the deadzone
-                imageMouseDelta = imageMousePos.sub(imageMouseOrigin);
-            }
-        }
-        if (zoomScrollX.touch)
-        {
-            moveImagePan(imageMouseDelta);
-            imageMouseOrigin = imageMousePos;
-        }
-    }
-}
-
-onmouseup = (event) =>
-{
-    if (imagePressed)
-    {
-        if (!zoomScrollX.touch)
-        {
-            showImageBar(!enableImageControls, false); // toggle image bar with fade
-        }
-        imagePressed = false;
-        zoomScrollX.release();
-        zoomScrollY.release();
-    }
-}
-
-onwheel = (event) =>
-{
-    let deltaPx = event.deltaY;
-    switch (event.deltaMode)
-    {
-        case WheelEvent.DOM_DELTA_LINE: deltaPx *= 15; break;
-        case WheelEvent.DOM_DELTA_PAGE: deltaPx *= 100; break;
-    }
-    switch (focus)
-    {
-        case imageMode:
-            const zoomRate = 0.001;
-            const oldZoomTarget = zoomScrollZ.target;
-            const minZoom = getMinZoom(getActiveImage());
-            zoomScrollZ.target = Math.max(minZoom, Math.min(maxZoom, oldZoomTarget - deltaPx * zoomRate));
-            zoomScrollZ.animate = true;
-            if (zoomScrollZ.target == minZoom && oldZoomTarget != minZoom)
-            {
-                $('.navButton').css({width:'30%'}); // Big navigation buttons
-            }
-            else if (oldZoomTarget == minZoom && zoomScrollZ.target != minZoom)
-            {
-                showImageBar(false, false); // fade image bar out
-                $('.navButton').css({width:'10%'}); // Small navigation buttons
-            }
-
-            // Find the mouse position in image space
-            const imageOffset = getActiveImage().offset();
-            setZoomCenter(new Point(event.clientX, event.clientY));
-    }
-}
-
 //
 // Main loop
 //
-
-// Utility for fading elements in and out
-var fades = [];
-function fade(elements, fadeIn, duration = 0)
-{
-    elements.each(function()
-    {
-        const element = $(this);
-        for (let i = 0; i < fades.length; i++)
-        {
-            const fade = fades[i];
-            if (fade.element.is(element))
-            {
-                if (duration == 0)
-                {
-                    // Fade will be executed immediately, remove the animation
-                    fades.splice(i, 1);
-                    break;
-                }
-                
-                // Replace the animation
-                let rate = 1 / duration;
-                fade.rate = (fade.fadeIn == fadeIn) ? Math.max(rate, fade.rate) : rate;
-                fade.fadeIn = fadeIn;
-                return;
-            }
-        }
-
-        if (duration == 0)
-        {
-            if (fadeIn)
-            {
-                element.css({opacity: 1}).removeAttr('hidden');
-            }
-            else
-            {
-                element.css({opacity: 0}).attr('hidden', true);
-            }
-            return;
-        }
-
-        let rate = 1 / duration;
-        fades.push({
-            element: element,
-            fadeIn: fadeIn,
-            rate: rate
-        });
-    });
-}
-
-function updateFades(dt)
-{
-    for (let i = 0; i < fades.length; i++)
-    {
-        const fade = fades[i];
-        let opacity = Number(fade.element.css('opacity'));
-        if (fade.fadeIn)
-        {
-            fade.element.removeAttr('hidden');
-            opacity += fade.rate * dt;
-            if (opacity >= 1)
-            {
-                opacity = 1;
-                fades.splice(i--, 1);
-            }
-        }
-        else
-        {
-            opacity -= fade.rate * dt;
-            if (opacity <= 0)
-            {
-                opacity = 0;
-                fade.element.attr('hidden', true);
-                fades.splice(i--, 1);
-            }
-        }
-        opacity = fade.element.css('opacity', opacity);
-    }
-}
-
-// decay x by a factor of rate every second. Snap to 0 when abs(x) < limit.
-function decay(x, dt, rate, limit = 0)
-{
-    if (Math.abs(x) < limit)
-    {
-        return 0;
-    }
-    const factor = Math.pow(rate, dt);
-    return x * factor;
-}
-
-function getClientSize() { return new Point(window.innerWidth, window.innerHeight); }
-function getGalleryEntry(image) { return gallery.view[image.get(0).galleryIndex]; }
-function getActiveImage() { return images[numNeighborImages]; }
-function getNativeSize(image)
-{
-    const entry = getGalleryEntry(image);
-    return new Point(entry.width, entry.height);
-}
-function getZoomScale() { return Math.pow(Math.E, zoomScrollZ.x); }
-function getMinZoomScale(image)
-{
-    const scaleXY = getClientSize().div(getNativeSize(image));
-    return Math.min(scaleXY.x, scaleXY.y, 1);
-}
-function getMinZoom(image) { return Math.log(getMinZoomScale(image)); }
-function getScaledSize(image, zoomed)
-{
-    const nativeSize = getNativeSize(image);
-    let scale = zoomed ? getZoomScale() : getMinZoomScale(image);
-    return nativeSize.mul(scale);
-}
-
-function setZoomCenter(clientPos)
-{
-    const image = getActiveImage();
-    const imageOffset = image.offset();
-    const nativeSize = getNativeSize(image);
-    zoomCenter = clientPos
-        .sub(new Point(imageOffset.left, imageOffset.top)) // Relative to topleft corner
-        .div(getZoomScale()) // In native scale
-        .max(0).min(nativeSize) // Clamped to image
-        .sub(nativeSize.div(2)); // Relative to image center
-}
-
-function updateImage(dt)
-{
-    if (images.length == 0)
-    {
-        return;
-    }
-    
-    const image = getActiveImage();
-    
-    // Calculate the scroll range - the minimum necessary to be able to see the whole image by scrolling, plus any extra specified by
-    // zoomScrollRangeExtension (positive values extend max, negative values extend min)
-    let scrollRange, scrollMin, scrollMax;
-    function calcScrollRange()
-    {
-        const imageSize = getScaledSize(image, true);
-        scrollRange = imageSize.sub(getClientSize()).max(0).div(2);
-        scrollMax = scrollRange.add(zoomScrollRangeExtension.max(0));
-        scrollMin = scrollRange.neg().add(zoomScrollRangeExtension.min(0));
-    }
-
-    // Calculate current excess of the scroll range
-    calcScrollRange();
-    const scroll = new Point(zoomScrollX.x, zoomScrollY.x);
-    const overMax = scroll.sub(scrollMax).max(0);
-    const underMin = scroll.sub(scrollMin).min(0);
-    
-    // Animate zoom
-    const oldZoomScale = getZoomScale();
-    const minZoom = getMinZoom(image);
-    zoomScrollZ.update(dt, minZoom, maxZoom);
-    const zoomScale = getZoomScale();
-
-    if (zoomScrollZ.target <= minZoom && !zoomScrollZ.touch)
-    {
-        // Reset scroll range extension and recenter
-        zoomScrollRangeExtension = new Point();
-        scrollRange = new Point();
-        scrollMin = new Point();
-        scrollMax = new Point();
-    }
-    else
-    {
-        // Recalculate the scroll range at the new zoom
-        calcScrollRange();
-
-        // Shift the image position to maintain the position of the zoomCenter in screen space
-        const zoomShift = zoomCenter.mul(oldZoomScale - zoomScale);
-        const newScroll = scroll.add(zoomShift);
-        const newOverMax = newScroll.sub(scrollMax).max(0);
-        const newUnderMin = newScroll.sub(scrollMin).min(0);
-
-        // Calculate whether the zoom shift pushes beyond the scroll range and by how much.
-        // If it does, extend the range so that it does not push back from the shift.
-        const newScrollRangeExtension = 
-            newOverMax.sub(overMax).max(0)
-            .add(newUnderMin.sub(underMin).min(0));
-        zoomScrollRangeExtension = zoomScrollRangeExtension.binary(newScrollRangeExtension, (a, b) =>
-        {
-            if (Math.abs(b) < 1e-5)
-            {
-                return a; // Ignore tiny changes, can get b==0 or maybe an opposite-signed value from numerical error
-            }
-            return Math.sign(a) == Math.sign(b) ? a + b : b;
-        });
-
-        // If scrolled back towards the natural range, reduce the extension
-        zoomScrollRangeExtension = zoomScrollRangeExtension
-            .min(newScroll.sub(scrollRange).max(0))
-            .max(newScroll.sub(scrollRange.neg()).min(0));
-
-        // Apply the shift
-        zoomScrollX.x += zoomShift.x;
-        zoomScrollX.target += zoomShift.x;
-        zoomScrollY.x += zoomShift.y;
-        zoomScrollY.target += zoomShift.y;
-        
-        calcScrollRange(); // Recalculate the range
-    }
-
-    // Animate scroll
-    const navScrollLimit = imageScrollX.touch ? 1e10 : 0; // Scroll freely while grabbed, snap when released
-    imageScrollX.update(dt, -navScrollLimit, navScrollLimit);
-    const backScrollLimit = imageScrollY.touch ? 1e10 : 0;
-    imageScrollY.update(dt, 0, backScrollLimit);
-    zoomScrollX.update(dt, scrollMin.x, scrollMax.x);
-    zoomScrollY.update(dt, scrollMin.y, scrollMax.y);
-
-    const imageScroll = new Point(imageScrollX.x, imageScrollY.x);
-    const neighborShift = new Point(getClientSize().x, 0);
-    for (let i = 0; i < numTotalImages; i++)
-    {
-        const image = images[i];
-        if (image === null)
-        {
-            continue;
-        }
-        const galleryEntry = gallery.view[image.get(0).galleryIndex];
-        const offset = i - numNeighborImages;
-        
-        const scaledSize = getScaledSize(image, offset == 0);
-
-        const zoomScroll = (offset === 0) ? new Point(zoomScrollX.x, zoomScrollY.x) : new Point();
-        const position = getClientSize()
-            .sub(scaledSize).div(2) // Center
-            .add(imageScroll) // Apply scroll
-            .add(zoomScroll)
-            .add(neighborShift.mul(offset)); // Shift neighbor images by screen widths
-
-        image.css(
-        {
-            'width': scaledSize.x,
-            'height': scaledSize.y,
-            'left': position.x,
-            'top': position.y
-        });
-    }
-}
 
 var tLast;
 function animate(t)
@@ -913,8 +198,8 @@ function animate(t)
     
     // Update UI elements
     thumbsView.update(dt);
-    updateImage(dt);
-    updateFades(dt);
+    imageView.update(dt);
+    fade.update(dt);
 
     // Animate forever
     requestAnimationFrame(animate);

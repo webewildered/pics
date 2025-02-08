@@ -3,15 +3,15 @@ import Feeler from './feeler.js';
 
 const res = 200; // Native size of thumbnail images in px
 const margin = 2; // Horizontal space between thumbnails in px
-let gallery = null;
-let focus = true; // Whether the view should handle global input events (mouse wheel, keystroke)
-let cols = 0; // Number of thumbnails per row
-let rows = 0; // Number of rows of thumbnails
-let size = 0; // Displayed thumbnail size
-let sizeEnd = 0; // Width of the last thumbnail in column, slightly smaller than size if cols does not divide the client width
-let virtualRow = 0; // Index of the row that the first row of thumbnails represents
-let scroll = new Scroll();
-let eventTarget = new EventTarget();
+var gallery = null;
+var focus = true; // Whether the view should handle global input events (mouse wheel, keystroke)
+var cols = 0; // Number of thumbnails per row
+var rows = 0; // Number of rows of thumbnails
+var size = 0; // Displayed thumbnail size
+var sizeEnd = 0; // Width of the last thumbnail in column, slightly smaller than size if cols does not divide the client width
+var virtualRow = 0; // Index of the row that the first row of thumbnails represents
+var scroll = new Scroll();
+var eventTarget = new EventTarget();
 
 function updateThumbImage(index, thumb)
 {
@@ -20,7 +20,7 @@ function updateThumbImage(index, thumb)
         thumb = $('#thumbs > :nth-child(' + (index + 1) + ')');
     }
 
-    if (gallery && index < gallery.view.length)
+    if (index < gallery.view.length)
     {
         thumb.attr('src', 'thumbs/' + gallery.view[index].thumb);
         thumb.removeAttr('hidden');
@@ -40,7 +40,6 @@ function click(thumbIndex)
 
 export function init(galleryIn)
 {
-
     gallery = galleryIn;
 
     // Create and position thumbnails as the view resizes
@@ -204,6 +203,11 @@ export function update(dt)
     // Position the thumbs
     const thumbDisplacement = scroll.x - virtualRow * size;
     thumbs.css({position: 'relative', top: -thumbDisplacement});
+}
+
+export function setFocus(focusIn)
+{
+    focus = focusIn;
 }
 
 export function addEventListener(name, listener)

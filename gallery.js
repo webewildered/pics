@@ -2,7 +2,7 @@ export default class Gallery extends EventTarget
 {
     constructor()
     {
-        super()
+        super();
         this.images = [];
         this.view = [];
     }
