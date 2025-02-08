@@ -1,13 +1,15 @@
 import Point from './point.js';
 import Scroll from './scroll.js';
 import Feeler from './feeler.js';
-import Gallery from './gallery.js'
+import Gallery from './gallery.js';
+import * as thumbsView from './thumbs.js';
 
 //
 // Global parameters
 //
 
 const gallery = new Gallery();
+thumbsView.init(gallery);
 var hasMouse = true;
 
 //
@@ -17,18 +19,6 @@ var hasMouse = true;
 const galleryMode = "galleryMode";
 const imageMode = "imageMode";
 var focus = galleryMode;
-
-//
-// Thumbnail gallery
-//
-
-const thumbRes = 200; // Native size of thumbnail images in px
-const thumbMargin = 2; // Horizontal space between thumbnails in px
-var thumbPitch = 0; // Number of thumbnails per row
-var thumbRows = 0; // Number of rows of thumbnails
-var thumbSize = 0; // Displayed thumbnail size
-var thumbSizeEnd = 0; // End thumbnail's width
-var thumbScroll = new Scroll(); // Gallery vertical scroll
 
 //
 // Image viewer
@@ -62,25 +52,6 @@ var zoomScrollY = new Scroll();
 var zoomScrollZ = new Scroll();
 zoomScrollZ.boundStiffness = 0.8;
 var zoomScrollRangeExtension = new Point();
-
-function styleImage(imageElement, isEnd)
-{
-    if (isEnd)
-    {
-        imageElement
-            .attr('width', thumbSizeEnd)
-            .attr('height', thumbSize)
-            .attr('class', 'thumb-end');
-    }
-    else
-    {
-        imageElement
-            .attr('width', thumbSize)
-            .attr('height', thumbSize)
-            .attr('class', 'thumb');
-    }
-    return imageElement;
-}
 
 function createImage(index)
 {
@@ -137,11 +108,10 @@ function updateActiveImage()
     zoomScrollZ.reset(getMinZoom(image));
 }
 
-function clickThumb(thumbIndex)
+thumbsView.addEventListener('click', (event) =>
 {
     fade($('#imageView'), true, 0.1);
-
-    thumbIndex += thumbPitch * calcThumbRowOffset();
+    let thumbIndex = event.index;
 
     // Create the images
     images = [];
@@ -170,7 +140,7 @@ function clickThumb(thumbIndex)
     focus = imageMode;
     enableImageControls = true;
     showImageBar(true, true); // show image bar immediate
-}
+});
 
 function clickBackButton()
 {
@@ -309,9 +279,8 @@ async function upload(event)
                     return response.json().then((galleryEntry) =>
                     {
                         console.log('Added ' + galleryEntry.title);
-                        galleryEntry.index = gallery.view.length;
-                        gallery.view.push(galleryEntry);
-                        updateThumbImage(galleryEntry.index);
+                        galleryEntry.index = gallery.view.length; // TODO probably shouldn't need to store this anymore
+                        gallery.add(galleryEntry);
                     });
                 }
             })
@@ -337,87 +306,13 @@ async function upload(event)
     updateProgress();
 }
 
-function updateThumbImage(index, thumb)
-{
-    if (thumb === undefined)
-    {
-        thumb = $('#thumbs > :nth-child(' + (index + 1) + ')');
-    }
-
-    // TODO scrolling
-    if (gallery && index < gallery.view.length)
-    {
-        thumb.attr('src', 'thumbs/' + gallery.view[index].thumb);
-        thumb.removeAttr('hidden');
-    }
-    else
-    {
-        thumb.attr('hidden', true);
-    }
-}
-
-function layout()
+var hasMouse = true;
+window.onload = () =>
 {
     // Set a fixed scale. Zoom doesn't work and this prevents responsive displays from auto-scaling to fit content that should be outside of the viewport.
     const scale = Math.min(window.screen.width / 981, 1.0);
     const viewport = document.querySelector('meta[name="viewport"]');
     viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
-    
-    // Make a grid of thumbnail images. First choose the number of thumbs per row to minimize the downscaling required for a perfect fit.
-    // Then choose the number of rows so that the container is covered.
-    const thumbContainer = $('#thumbContainer');
-    var width = thumbContainer.width();
-    var height = thumbContainer.height();
-    const newThumbPitch = Math.ceil((width + thumbMargin) / (thumbRes + thumbMargin));
-    const newThumbSize = Math.ceil((width + thumbMargin) / newThumbPitch - thumbMargin);
-    const newThumbSizeEnd = width - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
-    const newThumbRows = Math.ceil(height / newThumbSize) + 1;
-    if (newThumbPitch !== thumbPitch || newThumbRows !== thumbRows || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
-    {
-        thumbPitch = newThumbPitch;
-        thumbRows = newThumbRows;
-        thumbSize = newThumbSize;
-        thumbSizeEnd = newThumbSizeEnd;
-
-        // Adjust the number of thumbnails
-        const numThumbs = $('#thumbs').children().length;
-        const newNumThumbs = thumbPitch * thumbRows;
-        if (numThumbs > newNumThumbs)
-        {
-            // Remove the excess thumbnails
-            $('#thumbs').children().slice(newNumThumbs - numThumbs).remove();
-        }
-        for (let i = numThumbs; i < newNumThumbs; i++)
-        {
-            // Add a thumbnail
-            const image = $('<img>')
-                .attr('draggable', false)
-                .addClass('noSelect')
-                .appendTo(thumbs);
-            image.on('click', () => clickThumb(i));
-            updateThumbImage(i, image);
-        }
-        
-        styleImage($('#thumbs').children(), false);
-        styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
-    }
-}
-window.onresize = layout;
-
-var hasMouse = true;
-window.onload = () =>
-{
-    gallery.addEventListener('change', (event) =>
-    {
-        const minThumb = thumbPitch * calcThumbRowOffset();
-        const maxThumb = minThumb + $('#thumbs').children().length - 1;
-        const minIndex = Math.max(minThumb, event.minIndex) - minThumb;
-        const maxIndex = Math.min(maxThumb, event.maxIndex) - minThumb;
-        for (let i = minIndex; i <= maxIndex; i++)
-        {
-            updateThumbImage(i);
-        }
-    });
 
     // Load parameters
     const params = new URLSearchParams(window.location.search);
@@ -457,15 +352,12 @@ window.onload = () =>
             })
             .catch((err) =>
             {
-                $('<span style="color:white">error: ' + err + '</span>').appendTo(thumbs);
+                console.log('Error loading gallery: ' + err);
             });
             break;
         }
     }
     
-    // Lay out the thumbnails
-    layout();
-
     // Handle input events
     Feeler.tap($('#uploadButton').get(0), upload);
     Feeler.tap($('#backButton').get(0), clickBackButton);
@@ -482,45 +374,6 @@ window.onload = () =>
     const disableTouch = (jqElem) => jqElem.each((idx, elem) => Feeler.disable(elem));
     disableTouch($('#galleryBar'));
     disableTouch($('.imageBar'));
-
-    // Thumbnail gallery touch scrolling
-    const thumbFeeler = new Feeler($('#thumbContainer').get(0));
-    thumbFeeler.addEventListener('start', (event) => 
-    {
-        if (event.touches.length)
-        {
-            event.reject();
-        }
-    });
-    thumbFeeler.addEventListener('end', (event) =>
-    {
-        if (thumbScroll.touch)
-        {
-            thumbScroll.release();
-        }
-        else
-        {
-            const thumb = document.elementFromPoint(event.touches[0].pos.x, event.touches[0].pos.y);
-            if (thumb.classList.contains('thumb') || thumb.classList.contains('thumb-end'))
-            {
-                clickThumb($(thumb).index());
-            }
-        }
-    });
-    thumbFeeler.addEventListener('move', (event) =>
-    {
-        if (thumbScroll.touch)
-        {
-            const touch = event.touches[0];
-            thumbScroll.target -= touch.pos.y - touch.last.y;
-        }
-        else
-        {
-            // Ignore delta on the first move event. Something below us on the stack implements a deadzone, so we
-            // see a big jump on the first move, which we want to skip.
-            thumbScroll.grab();
-        }
-    });
 
     // Image touch control
     const imageFeeler = new Feeler($('#imageClick').get(0));
@@ -783,10 +636,6 @@ onwheel = (event) =>
     }
     switch (focus)
     {
-        case galleryMode:
-            thumbScroll.animate = true;
-            thumbScroll.target += deltaPx;
-            break;
         case imageMode:
             const zoomRate = 0.001;
             const oldZoomTarget = zoomScrollZ.target;
@@ -901,41 +750,6 @@ function decay(x, dt, rate, limit = 0)
     }
     const factor = Math.pow(rate, dt);
     return x * factor;
-}
-
-
-function calcThumbRowOffset() { return Math.floor(thumbScroll.x / thumbSize); }
-
-function updateThumbs(dt)
-{
-    const thumbs = $('#thumbs');
-    const thumbContainer = $('#thumbContainer');
-
-    // Calculate the scroll range
-    const virtualThumbRows = Math.ceil(gallery.view.length / thumbPitch);
-    const virtualThumbHeight = virtualThumbRows * thumbSize;
-    const minScroll = 0;
-    const panelHeight = thumbContainer.height();
-    const maxScroll = Math.max(virtualThumbHeight - panelHeight, 0);
-
-    // Animate scroll
-    const oldRowOffset = calcThumbRowOffset();
-    thumbScroll.update(dt, minScroll, maxScroll);
-    const newRowOffset = calcThumbRowOffset();
-
-    // Update the thumb images if necessary
-    if (oldRowOffset !== newRowOffset)
-    {
-        $('#thumbs').children().each((index, element) =>
-        {
-            const imageIndex = newRowOffset * thumbPitch + index;
-            updateThumbImage(imageIndex, $(element));
-        });
-    }
-
-    // Position the thumbs
-    const thumbDisplacement = thumbScroll.x - newRowOffset * thumbSize;
-    thumbs.css({position: 'relative', top: -thumbDisplacement});
 }
 
 function getClientSize() { return new Point(window.innerWidth, window.innerHeight); }
@@ -1098,12 +912,9 @@ function animate(t)
     tLast = t;
     
     // Update UI elements
-    if (gallery) // Wait until load
-    {
-        updateThumbs(dt);
-        updateImage(dt);
-        updateFades(dt);
-    }
+    thumbsView.update(dt);
+    updateImage(dt);
+    updateFades(dt);
 
     // Animate forever
     requestAnimationFrame(animate);
