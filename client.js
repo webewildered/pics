@@ -26,6 +26,7 @@ var focus = galleryMode;
 const thumbRes = 200; // Native size of thumbnail images in px
 const thumbMargin = 2; // Horizontal space between thumbnails in px
 var thumbPitch = 0; // Number of thumbnails per row
+var thumbRows = 0; // Number of rows of thumbnails
 var thumbSize = 0; // Displayed thumbnail size
 var thumbSizeEnd = 0; // End thumbnail's width
 var thumbScroll = new Scroll(); // Gallery vertical scroll
@@ -82,19 +83,6 @@ function styleImage(imageElement, isEnd)
     return imageElement;
 }
 
-function addImage(galleryEntry)
-{
-    const image = $('<img>')
-        .attr('src', 'thumbs/' + galleryEntry.thumb)
-        .attr('draggable', false)
-        .addClass('noSelect')
-        .appendTo(thumbs);
-    image.get(0).galleryEntry = galleryEntry;
-    image.on('click', () => clickThumb(galleryEntry));
-    const isEnd = ($('#thumbs').children().length % thumbPitch) == 0;
-    styleImage(image, isEnd);
-}
-
 function createImage(index)
 {
     const galleryEntry = gallery.images[index];
@@ -143,29 +131,31 @@ function updateActiveImage()
     }
 
     // Toggle nav button visibility
-    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').hide() : $('#navButtonLeft').show();
-    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').hide() : $('#navButtonRight').show();
+    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').attr('hidden', true) : $('#navButtonLeft').removeAttr('hidden');
+    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').attr('hidden', true) : $('#navButtonRight').removeAttr('hidden');
 
     // Reset zoom state
     zoomScrollZ.reset(getMinZoom(image));
 }
 
-function clickThumb(galleryEntry)
+function clickThumb(thumbIndex)
 {
     fade($('#imageView'), true, 0.1);
+
+    thumbIndex += thumbPitch * calcThumbRowOffset();
 
     // Create the images
     images = [];
     for (let i = -numNeighborImages; i <= numNeighborImages; i++)
     {
-        const index = galleryEntry.index + i;
-        if (index < 0 || index >= gallery.images.length)
+        const imageIndex = thumbIndex + i;
+        if (imageIndex < 0 || imageIndex >= gallery.images.length)
         {
             images.push(null);
         }
         else
         {
-            images.push(createImage(index));
+            images.push(createImage(imageIndex));
         }
     }
     
@@ -269,23 +259,23 @@ async function upload(event)
     {
         if (filesComplete === filesTotal)
         {
-            $('#progressContainer').hide();
-            $('#progressText').hide();
+            $('#progressContainer').attr('hidden', true);
+            $('#progressText').attr('hidden', true);
         }
         else
         {
-            $('#progressContainer').show();
+            $('#progressContainer').removeAttr('hidden');
             $('#progressBar').css('width', Math.floor(100 * filesComplete / filesTotal) + '%');
-            $('#progressText').show()
+            $('#progressText').removeAttr('hidden')
                 .text(filesComplete + '/' + filesTotal);
         }
         if (filesFailed === 0)
         {
-            $('#errorText').hide()
+            $('#errorText').attr('hidden', true);
         }
         else
         {
-            $('#errorText').show().text(filesFailed + ' uploads failed!');
+            $('#errorText').removeAttr('hidden').text(filesFailed + ' uploads failed!');
         }
     }
 
@@ -322,7 +312,7 @@ async function upload(event)
                         console.log('Added ' + galleryEntry.title);
                         galleryEntry.index = gallery.images.length;
                         gallery.images.push(galleryEntry);
-                        addImage(galleryEntry);
+                        updateThumbImage(galleryEntry.index);
                     });
                 }
             })
@@ -348,22 +338,66 @@ async function upload(event)
     updateProgress();
 }
 
+function updateThumbImage(index, thumb)
+{
+    if (thumb === undefined)
+    {
+        thumb = $('#thumbs > :nth-child(' + (index + 1) + ')');
+    }
+
+    // TODO scrolling
+    if (gallery && index < gallery.images.length)
+    {
+        thumb.attr('src', 'thumbs/' + gallery.images[index].thumb);
+        thumb.removeAttr('hidden');
+    }
+    else
+    {
+        thumb.attr('hidden', true);
+    }
+}
+
 function layout()
 {
+    // Set a fixed scale. Zoom doesn't work and this prevents responsive displays from auto-scaling to fit content that should be outside of the viewport.
     const scale = Math.min(window.screen.width / 981, 1.0);
     const viewport = document.querySelector('meta[name="viewport"]');
     viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
-
-    var width = $('#thumbContainer').width();
+    
+    // Make a grid of thumbnail images. First choose the number of thumbs per row to minimize the downscaling required for a perfect fit.
+    // Then choose the number of rows so that the container is covered.
+    const thumbContainer = $('#thumbContainer');
+    var width = thumbContainer.width();
+    var height = thumbContainer.height();
     const newThumbPitch = Math.ceil((width + thumbMargin) / (thumbRes + thumbMargin));
     const newThumbSize = Math.ceil((width + thumbMargin) / newThumbPitch - thumbMargin);
     const newThumbSizeEnd = width - (newThumbPitch - 1) * (newThumbSize + thumbMargin);
-    if (newThumbPitch !== thumbPitch || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
+    const newThumbRows = Math.ceil(height / newThumbSize) + 1;
+    if (newThumbPitch !== thumbPitch || newThumbRows !== thumbRows || newThumbSize !== thumbSize || newThumbSizeEnd !== thumbSizeEnd)
     {
         thumbPitch = newThumbPitch;
+        thumbRows = newThumbRows;
         thumbSize = newThumbSize;
         thumbSizeEnd = newThumbSizeEnd;
-        //console.log('width ' + width + ' pitch ' + thumbPitch + ' size ' + thumbSize);
+
+        // Adjust the number of thumbnails
+        const numThumbs = $('#thumbs').children().length;
+        const newNumThumbs = thumbPitch * thumbRows;
+        if (numThumbs > newNumThumbs)
+        {
+            // Remove the excess thumbnails
+            $('#thumbs').children().slice(newNumThumbs - numThumbs).remove();
+        }
+        for (let i = numThumbs; i < newNumThumbs; i++)
+        {
+            // Add a thumbnail
+            const image = $('<img>')
+                .attr('draggable', false)
+                .addClass('noSelect')
+                .appendTo(thumbs);
+            image.on('click', () => clickThumb(i));
+            updateThumbImage(i, image);
+        }
         
         styleImage($('#thumbs').children(), false);
         styleImage($('#thumbs img:nth-child(' + thumbPitch + 'n)'), true);
@@ -412,7 +446,7 @@ window.onload = () =>
         {
             const galleryEntry = gallery.images[i];
             galleryEntry.index = i;
-            addImage(galleryEntry);
+            updateThumbImage(i);
         }
     }
     const loadGalleryJson = (key) =>
@@ -487,7 +521,7 @@ window.onload = () =>
             const thumb = document.elementFromPoint(event.touches[0].pos.x, event.touches[0].pos.y);
             if (thumb.classList.contains('thumb') || thumb.classList.contains('thumb-end'))
             {
-                clickThumb(thumb.galleryEntry)
+                clickThumb($(thumb).index());
             }
         }
     });
@@ -828,11 +862,11 @@ function fade(elements, fadeIn, duration = 0)
         {
             if (fadeIn)
             {
-                element.css({opacity: 1}).show();
+                element.css({opacity: 1}).removeAttr('hidden');
             }
             else
             {
-                element.css({opacity: 0}).hide();
+                element.css({opacity: 0}).attr('hidden', true);
             }
             return;
         }
@@ -854,7 +888,7 @@ function updateFades(dt)
         let opacity = Number(fade.element.css('opacity'));
         if (fade.fadeIn)
         {
-            fade.element.show();
+            fade.element.removeAttr('hidden');
             opacity += fade.rate * dt;
             if (opacity >= 1)
             {
@@ -868,7 +902,7 @@ function updateFades(dt)
             if (opacity <= 0)
             {
                 opacity = 0;
-                fade.element.hide();
+                fade.element.attr('hidden', true);
                 fades.splice(i--, 1);
             }
         }
@@ -887,20 +921,39 @@ function decay(x, dt, rate, limit = 0)
     return x * factor;
 }
 
+
+function calcThumbRowOffset() { return Math.floor(thumbScroll.x / thumbSize); }
+
 function updateThumbs(dt)
 {
     const thumbs = $('#thumbs');
     const thumbContainer = $('#thumbContainer');
 
     // Calculate the scroll range
+    const virtualThumbRows = Math.ceil(gallery.images.length / thumbPitch);
+    const virtualThumbHeight = virtualThumbRows * thumbSize;
     const minScroll = 0;
-    const contentHeight = thumbs.prop('scrollHeight');
     const panelHeight = thumbContainer.height();
-    const maxScroll = Math.max(contentHeight - panelHeight, 0);
+    const maxScroll = Math.max(virtualThumbHeight - panelHeight, 0);
 
     // Animate scroll
+    const oldRowOffset = calcThumbRowOffset();
     thumbScroll.update(dt, minScroll, maxScroll);
-    thumbs.css({position: 'relative', top: -thumbScroll.x});
+    const newRowOffset = calcThumbRowOffset();
+
+    // Update the thumb images if necessary
+    if (oldRowOffset !== newRowOffset)
+    {
+        $('#thumbs').children().each((index, element) =>
+        {
+            const imageIndex = newRowOffset * thumbPitch + index;
+            updateThumbImage(imageIndex, $(element));
+        });
+    }
+
+    // Position the thumbs
+    const thumbDisplacement = thumbScroll.x - newRowOffset * thumbSize;
+    thumbs.css({position: 'relative', top: -thumbDisplacement});
 }
 
 function getClientSize() { return new Point(window.innerWidth, window.innerHeight); }
@@ -1063,9 +1116,12 @@ function animate(t)
     tLast = t;
     
     // Update UI elements
-    updateThumbs(dt);
-    updateImage(dt);
-    updateFades(dt);
+    if (gallery) // Wait until load
+    {
+        updateThumbs(dt);
+        updateImage(dt);
+        updateFades(dt);
+    }
 
     // Animate forever
     requestAnimationFrame(animate);
