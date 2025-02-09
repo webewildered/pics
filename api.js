@@ -91,7 +91,7 @@ function makeKey()
     return key;
 }
 
-// Reads an Express Request. Returns a promise that resolves to a string.
+// Reads an Express Request and parses it as JSON. Returns a promise that resolves to the parsed object.
 function readRequest(req)
 {
     return new Promise((resolve, reject) =>
@@ -106,8 +106,7 @@ function readRequest(req)
             .on('end', () =>
             {
                 body = Buffer.concat(body).toString();
-                const requestJson = JSON.parse(body);
-                resolve(requestJson);
+                resolve(JSON.parse(body));
             })
             .on('error', () => reject('Request error'))
             .on('error', () => reject('Request closed'))
@@ -135,7 +134,6 @@ function adminOp(req, res, op)
             // Read the admin file (this validates the key)
             const adminKey = requestJson.adminKey;
             const adminPath = 'admin/' + adminKey + '.json';
-            let opResponse;
             return updateJsonAtomic(adminPath, (adminJson) => op(requestJson, adminJson))
         })
         .then(opResult =>
@@ -813,6 +811,40 @@ function reverseGeocode(latitude, longitude)
             throw new Error('Location error: ' + err.message);
         })
 }
+
+app.post('/api/deleteImage', function (req, res)
+{
+    readRequest(req)
+        .then(requestObject =>
+        {
+            // Validate the write key and get the gallery key
+            const keyPath = 'galleries/' + requestObject.writeKey + '.json';
+            return fs.readFile(keyPath)
+                .then((keyFile) =>
+                    {
+                        galleryKey = JSON.parse(keyFile).galleryKey;
+                        const galleryPath = 'galleries/' + galleryKey + '.json';
+                        return updateJsonAtomic(galleryPath, gallery =>
+                        {
+                            for (let i = 0; i < gallery.images.length; i++)
+                            {
+                                if (gallery.images[i].file === requestObject.file)
+                                {
+                                    gallery.images.splice(i, 1);
+                                    return;
+                                }
+                            }
+                        })
+                    });
+        })
+        .then(() =>
+        {
+            // Return an empty object to ack the deletion
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({}));
+        })
+        .catch(err => handleError(res, err));
+});
 
 app.post('/api/bar', function (req, res)
 {

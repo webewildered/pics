@@ -58,6 +58,8 @@ export default class Gallery extends EventTarget
 
     remove(index)
     {
+        const galleryEntry = this.view[index];
+
         const event = new Event('remove');
         event.index = index;
         this.dispatchEvent(event);
@@ -65,6 +67,20 @@ export default class Gallery extends EventTarget
         this.images.splice(this.images.indexOf(this.view[index]), 1);
         this.view.splice(index, 1);
         this.#dispatchChange(index, this.view.length);
+
+        const reqBody = {writeKey: this.writeKey, file: galleryEntry.file};
+        fetch('api/deleteImage', { method: 'POST', body: JSON.stringify(reqBody) })
+            .then((response) =>
+            {
+                if (response.status === 200)
+                {
+                    console.log('deleted ' + galleryEntry.file);
+                }
+                else
+                {
+                    response.text().then((text) => { console.log('failed to delete ' + galleryEntry.file + ': ' + text); });
+                }
+            });
     }
 
     // Converts an image entry loaded from json to one that's ready to use at runtime
