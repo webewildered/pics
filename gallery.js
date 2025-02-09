@@ -52,8 +52,24 @@ export default class Gallery extends EventTarget
 
     add(image)
     {
+        // Add to the image set
         this.#toRuntime(image);
         this.images.push(image);
+
+        // Add to the view
+        let left = 0, right = this.view.length - 1;
+        while (left <= right)
+        {
+            let mid = Math.floor((left + right) / 2);
+            if (this.view[mid].date < image.date)
+            {
+                left = mid + 1;
+            } else {
+                right = mid - 1;
+            }
+        }
+        this.view.splice(left, 0, image);
+        this.#dispatchChange(left, this.view.length - 1);
     }
 
     remove(index)
