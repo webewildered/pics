@@ -459,6 +459,7 @@ app.post('/api/upload', upload.single('image'), function (req, res)
         {
             // Update the gallery
             galleryEntry.title = file.originalname;
+            galleryEntry.hash = req.body.hash;
             const galleryPath = 'galleries/' + galleryKey + '.json';
             return updateJsonAtomic(galleryPath, (gallery) =>
             {

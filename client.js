@@ -99,10 +99,18 @@ window.onload = () =>
 
 function upload(event)
 {
+    // Collect the set of hashes in the gallery
+    let hashes = new Set();
+    for (const galleryEntry of gallery.images)
+    {
+        hashes.add(galleryEntry.hash);
+    }
+
     event.preventDefault();
     const files = document.getElementById('fileInput');
     const filesTotal = files.files.length;
     let filesComplete = 0;
+    let filesSkipped = 0;
     let filesFailed = 0;
     function updateProgress()
     {
@@ -117,6 +125,14 @@ function upload(event)
             $('#progressBar').css('width', Math.floor(100 * filesComplete / filesTotal) + '%');
             $('#progressText').removeAttr('hidden')
                 .text(filesComplete + '/' + filesTotal);
+        }
+        if (filesSkipped === 0)
+        {
+            $('#skippedText').attr('hidden', true);
+        }
+        else
+        {
+            $('#skippedText').removeAttr('hidden').text(filesSkipped + ' skipped');
         }
         if (filesFailed === 0)
         {
@@ -140,32 +156,50 @@ function upload(event)
         }
 
         const file = files.files[nextFileIndex++];
-        const formData = new FormData();
-        formData.append('writeKey', gallery.writeKey);
-        formData.append('image', file);
-        fetch('api/upload', { method: 'POST', body: formData })
-            .then((response) =>
+
+        // Hash the file
+        file.arrayBuffer()
+            .then(buffer => crypto.subtle.digest('sha-256', buffer))
+            .then(hashBuffer =>
             {
-                if (response.status !== 200)
+                // If a file with the same hash is in the gallery, skip the upload
+                const hashArray = Array.from(new Uint8Array(hashBuffer)); // Convert to byte array
+                const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // Convert to hex
+                if (hashes.has(hash))
                 {
-                    return response.text().then((text) =>
-                    {
-                        const err = response.status + ' ' + response.statusText + '\n' + response.url + '\n' + text;
-                        throw new Error(err);
-                    });
+                    filesSkipped++;
+                    return;
                 }
-                else
-                {
-                    return response.json().then((galleryEntry) =>
-                    {
-                        console.log('Added ' + galleryEntry.title);
-                        gallery.add(galleryEntry);
-                    });
-                }
+
+                // Upload the file
+                const formData = new FormData();
+                formData.append('writeKey', gallery.writeKey);
+                formData.append('image', file);
+                formData.append('hash', hash);
+                return fetch('api/upload', { method: 'POST', body: formData })
+                    .then((response) =>
+                        {
+                            if (response.status !== 200)
+                            {
+                                return response.text().then((text) =>
+                                {
+                                    const err = response.status + ' ' + response.statusText + '\n' + response.url + '\n' + text;
+                                    throw new Error(err);
+                                });
+                            }
+                            else
+                            {
+                                return response.json().then((galleryEntry) =>
+                                {
+                                    console.log('Added ' + galleryEntry.title);
+                                    gallery.add(galleryEntry);
+                                });
+                            }
+                        });
             })
             .catch((err) =>
             {
-                console.log(err.toString());
+                console.log(err.stack);
                 filesFailed++;
             })
             .finally(() =>

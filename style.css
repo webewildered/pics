@@ -59,6 +59,11 @@ body {
     color: #ddd;
 }
 
+#skippedText {
+    margin-left: 5px;
+    color: #27aaf5;
+}
+
 #errorText {
     margin-left: 5px;
     color: orange;
