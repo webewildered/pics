@@ -3,6 +3,7 @@ import Gallery from './gallery.js';
 import * as thumbsView from './thumbs.js';
 import * as imageView from './image.js';
 import * as fade from './fade.js'
+import { sha256 } from './sha256.js'; // note, crypto.subtle requires https
 
 const gallery = new Gallery();
 
@@ -159,12 +160,11 @@ function upload(event)
 
         // Hash the file
         file.arrayBuffer()
-            .then(buffer => crypto.subtle.digest('sha-256', buffer))
-            .then(hashBuffer =>
+            .then(buffer => 
             {
                 // If a file with the same hash is in the gallery, skip the upload
-                const hashArray = Array.from(new Uint8Array(hashBuffer)); // Convert to byte array
-                const hash = hashArray.map(b => b.toString(16).padStart(2, '0')).join(''); // Convert to hex
+                const hash = sha256(buffer);
+                console.log('hash ' + hash);
                 if (hashes.has(hash))
                 {
                     filesSkipped++;
@@ -199,7 +199,7 @@ function upload(event)
             })
             .catch((err) =>
             {
-                console.log(err.stack);
+                console.log('Upload failed: ' + err.stack + '\n' + err.toString());
                 filesFailed++;
             })
             .finally(() =>
