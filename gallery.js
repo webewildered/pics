@@ -56,6 +56,17 @@ export default class Gallery extends EventTarget
         this.images.push(image);
     }
 
+    remove(index)
+    {
+        const event = new Event('remove');
+        event.index = index;
+        this.dispatchEvent(event);
+
+        this.images.splice(this.images.indexOf(this.view[index]), 1);
+        this.view.splice(index, 1);
+        this.#dispatchChange(index, this.view.length);
+    }
+
     // Converts an image entry loaded from json to one that's ready to use at runtime
     #toRuntime(image)
     {

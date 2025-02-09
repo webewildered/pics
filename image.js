@@ -16,6 +16,7 @@ var mouseOrigin = new Point(); // Location where the image press began
 var activeIndex = 0; // Index of the current image in the gallery
 var eventTarget = new EventTarget();
 var hasMouse = true; // Whether to show mouse controls
+var lastNavigateDirection = 0; // Last direction passed to navigate()
 var focus = false;
 
 const TouchMode = Object.freeze(
@@ -38,31 +39,36 @@ var zoomScrollZ = new Scroll();
 zoomScrollZ.boundStiffness = 0.8;
 var zoomScrollRangeExtension = new Point();
 
-// Create an image or video element for the gallery entry at the given index
-function createImage(index)
+// Create an image or video element for the gallery entry at the given index.
+// Returns null if there is no entry at that index.
+function createImage(index, offset)
 {
+    if (index < 0 || index >= gallery.view.length)
+    {
+        return null;
+    }
+
     const galleryEntry = gallery.view[index];
     const sourcePath = 'images/' + galleryEntry.file;
     const isVideo = galleryEntry.file.endsWith('.mp4');
-    let image;
+    let element;
     if (isVideo)
     {
-        image = $('<video>');
-        $('<source>').attr('src', sourcePath).appendTo(image);
+        element = $('<video>');
+        $('<source>').attr('src', sourcePath).appendTo(element);
     }
     else
     {
-        image = $('<img>')
+        element = $('<img>')
             .attr('src', sourcePath)
             .attr('draggable', false);
     }
-    image
+    element
         .addClass('mainImage')
         .addClass('noSelect')
-    image.appendTo('#imageView');
+        element.appendTo('#imageView');
 
-    // Attach the gallery entry to the image
-    return image;
+    return {element: element, scroll: new Scroll()};
 }
 
 // Call after changing the current image
@@ -80,9 +86,9 @@ function onChangeImage()
     $('#location').text(galleryEntry.location);
 
     // Play video
-    if (image.prop('nodeName').toLowerCase() === 'video')
+    if (image.element.prop('nodeName').toLowerCase() === 'video')
     {
-        const video = image.get(0);
+        const video = image.element.get(0);
         video.play();
     }
 
@@ -104,7 +110,7 @@ function closeImage()
         {
             if (image !== null)
             {
-                image.remove();
+                image.element.remove();
             }
         }
         images = [];
@@ -128,14 +134,12 @@ function navigate(direction)
         return;
     }
 
+    lastNavigateDirection = direction;
+
     // Create the new image
     const newIndex = activeIndex + direction * (numNeighborImages + 1);
-    let newImage = null;
-    if (newIndex >= 0 && newIndex < gallery.view.length)
-    {
-        activeIndex = newIndex;
-        newImage = createImage(activeIndex);
-    }
+    let newImage = createImage(newIndex, direction * (numNeighborImages + 1));
+    activeIndex += direction;
 
     // Shift it into the array
     let oldImage;
@@ -156,7 +160,7 @@ function navigate(direction)
     // Remove any old image shifted out of the array
     if (oldImage !== null)
     {
-        oldImage.remove();
+        oldImage.element.remove();
     }
 
     // Shift scroll
@@ -164,6 +168,50 @@ function navigate(direction)
 
     // Display
     onChangeImage();
+}
+
+// Deletes the active image
+function deleteImage()
+{
+    gallery.remove(activeIndex);
+
+    // Close the image viewer if all images were removed
+    if (gallery.view.length === 0)
+    {
+        closeImage();
+    }
+    else
+    {
+        // Remove the deleted image
+        getActiveImage().element.remove();
+        images.splice(numNeighborImages, 1);
+
+        // Shift in a new image
+        const forward = (lastNavigateDirection >= 0 && activeIndex < gallery.view.length) || activeIndex === 0;
+        const direction = forward ? 1 : -1;
+        const offset = direction * (numNeighborImages + (forward ? 0 : 1)); // If forward, all images past the removed one had their index reduced by one
+        const newImage = createImage(activeIndex + offset, offset);
+        if (forward)
+        {
+            images.push(newImage);
+            // No need to increment activeIndex because the view changed so that the next image is now at the current activeIndex
+        }
+        else
+        {
+            images.splice(0, 0, newImage);
+            activeIndex--;
+        }
+        for (let i = 0; i <= numNeighborImages; i++)
+        {
+            const image = images[numNeighborImages + direction * i];
+            if (image !== null)
+            {
+                image.scroll.x += direction * getClientSize().x;
+            }
+        }
+        
+        onChangeImage();
+    }
 }
 
 // Show or hide the control GUI
@@ -184,6 +232,7 @@ export function init(galleryIn, hasMouseIn)
     window.addEventListener('mouseup', onMouseUp);
     window.addEventListener('wheel', onMouseWheel);
     Feeler.tap($('#backButton').get(0), closeImage);
+    Feeler.tap($('#deleteButton').get(0), deleteImage);
     Feeler.tap($('#navButtonLeft').get(0), () => navigate(-1));
     Feeler.tap($('#navButtonRight').get(0), () => navigate(1));
 
@@ -204,14 +253,7 @@ export function show(index)
     for (let i = -numNeighborImages; i <= numNeighborImages; i++)
     {
         const index = activeIndex + i;
-        if (index < 0 || index >= gallery.view.length)
-        {
-            images.push(null);
-        }
-        else
-        {
-            images.push(createImage(index));
-        }
+        images.push(createImage(index, i));
     }
     
     // Reset scroll state
@@ -307,7 +349,7 @@ function onMouseWheel(event)
     }
 
     // Find the mouse position in image space
-    const imageOffset = getActiveImage().offset();
+    const imageOffset = getActiveImage().element.offset();
     setZoomCenter(new Point(event.clientX, event.clientY));
 }
 
@@ -546,7 +588,7 @@ function getScaledSize(index, zoomed)
 function setZoomCenter(clientPos)
 {
     const image = getActiveImage();
-    const imageOffset = image.offset();
+    const imageOffset = image.element.offset();
     const nativeSize = getNativeSize(activeIndex);
     zoomCenter = clientPos
         .sub(new Point(imageOffset.left, imageOffset.top)) // Relative to topleft corner
@@ -649,18 +691,21 @@ export function update(dt)
         {
             continue;
         }
+        image.scroll.update(dt, 0, 0);
         const offset = i - numNeighborImages;
         const index = activeIndex + offset;
         const galleryEntry = gallery.view[activeIndex + offset];
         const scaledSize = getScaledSize(index, offset === 0);
         const zoomScroll = (offset === 0) ? new Point(zoomScrollX.x, zoomScrollY.x) : new Point();
+        const localScroll = new Point(image.scroll.x, 0);
         const position = getClientSize()
             .sub(scaledSize).div(2) // Center
             .add(imageScroll) // Apply scroll
             .add(zoomScroll)
+            .add(localScroll)
             .add(neighborShift.mul(offset)); // Shift neighbor images by screen widths
 
-        image.css(
+        image.element.css(
         {
             'width': scaledSize.x,
             'height': scaledSize.y,

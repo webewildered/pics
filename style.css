@@ -134,14 +134,16 @@ body {
     padding: 10px;
 }
 
-#backButton {
+.imageButton {
     font-size: 50;
     color: #27aaf5;
+    stroke: #27aaf5;
     text-decoration: none;
 }
 
-#backButton:hover {
+.imageButton:hover {
     color: #5fccff;
+    stroke: #5fccff;
     text-decoration: none;
     cursor: pointer;
 }

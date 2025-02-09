@@ -51,13 +51,17 @@
         <!-- top and bottom bar -->
         <div class="imageBar imageBarTop">
             <div class="imageBarTopControl">
-                <span class="noSelect" id="backButton">&lt;</a>
+                <span id="backButton" class="imageButton noSelect">&lt;</a>
             </div>
             <div class="imageBarTopInfo">
                 <span id="location">Location</span><br />
                 <span id="time">Time and date</span>
             </div>
-            <div class="imageBarTopControl"></div>
+            <div class="imageBarTopControl" style="text-align:right;">
+                <svg id="deleteButton" class="imageButton noSelect" width="1em" height="1em">
+                    <use width="1em" height="1em" href="delete.svg#icon" />
+                </svg>
+            </div>
         </div>
         <div class="imageBar" style="bottom: 0" hidden>
             <span style="color: white; font-size: 14pt">Thumbnail bar will go here</span>
