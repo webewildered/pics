@@ -581,8 +581,16 @@ function processImage(image, imageType, originalFileName)
                     return 0;
                 }
     
-                const lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
-                const lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
+                let lat = exifGPSCoordToDeg(exifData.gps.GPSLatitude);
+                if (exifData.gps.GPSLatitudeRef === 'S')
+                {
+                    lat = -lat;
+                }
+                let lon = exifGPSCoordToDeg(exifData.gps.GPSLongitude);
+                if (exifData.gps.GPSLongitudeRef === 'W')
+                {
+                    lon = -lon;
+                }
     
                 return reverseGeocode(lat, lon);
             })
