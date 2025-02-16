@@ -644,6 +644,7 @@ function processVideo(video, originalFileName)
         let height = 0;
         let duration = 0;
         let location = 'Unknown location';
+        var date = new Date(1900, 1);
         for (const stream of metadata.streams)
         {
             if (stream.codec_type === 'video')
@@ -664,30 +665,38 @@ function processVideo(video, originalFileName)
         {
             throw new Error('Video stream not found');
         }
-    
-        // Extract date from the metadata
-        var date = new Date(1900, 1);
-        if (metadata.creation_time)
+
+        // Get tags
+        if (metadata.format && metadata.format.tags)
         {
-            date = new Date(metadata.creation_time);
-        }
-    
-        // Extract location from the metadata
-        let coords = metadata.location;
-        if (!coords)
-        {
-            coords = metadata['com.apple.quicktime.location.ISO6709'];
-        }
-        if (coords)
-        {
-            const regex = /^([-+]\d{2,3}\.\d+)([-+]\d{2,3}\.\d+).+$/;
-            const match = iso6709.match(regex);
-            if (match)
+            const tags = metadata.format.tags;
+
+            // Extract date from the tags
+            if (tags.creation_time)
             {
-                const latitude = parseFloat(match[1]);
-                const longitude = parseFloat(match[2]);
-                promises.push(reverseGeocode(location)
-                    .then((reverseGeocodeResult) => { location = reverseGeocodeResult; }));
+                date = new Date(tags.creation_time);
+            }
+        
+            // Extract location from the tags
+            let debug = '';
+            let coords = tags.location;
+            if (!coords)
+            {
+                coords = tags['com.apple.quicktime.location.ISO6709'];
+                debug='apple';
+            }
+            if (coords)
+            {
+                const regex = /^([-+]\d{2,3}\.\d+)([-+]\d{2,3}\.\d+).+$/;
+                const match = coords.match(regex);
+                if (match)
+                {
+                    debug+='match';
+                    const latitude = parseFloat(match[1]);
+                    const longitude = parseFloat(match[2]);
+                    promises.push(reverseGeocode(latitude, longitude)
+                        .then((reverseGeocodeResult) => { location = reverseGeocodeResult; }));
+                }
             }
         }
 
