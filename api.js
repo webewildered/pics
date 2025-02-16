@@ -525,9 +525,9 @@ function processImage(image, imageType, originalFileName)
         const promises = [];
 
         // Create the thumbnail
-        const sharpImage = sharp(jpegImage);
+        const sharpImage = sharp(jpegImage).rotate();
         const thumbFileName = makeKey() + '.jpg';
-        promises.push(createThumb(sharpImage, 'thumbs/' + thumbFileName));
+        promises.push(createThumb(sharpImage.clone(), 'thumbs/' + thumbFileName));
     
         // Get native image dimensions
         let nativeWidth, nativeHeight;
@@ -535,8 +535,16 @@ function processImage(image, imageType, originalFileName)
             .metadata()
             .then((metadata) =>
             {
-                nativeWidth = metadata.width;
-                nativeHeight = metadata.height;
+                if (metadata.orientation && metadata.orientation <= 4)
+                {
+                    nativeWidth = metadata.width;
+                    nativeHeight = metadata.height;
+                }
+                else
+                {
+                    nativeWidth = metadata.height;
+                    nativeHeight = metadata.width;
+                }
             })
         );
     
@@ -706,7 +714,7 @@ function processVideo(video, originalFileName)
         {
             // Move the original
             fileName = path.parse(fileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
-            promises.push(fs.renameSync(originalPath, 'images/' + fileName));
+            promises.push(fs.rename(originalPath, 'images/' + fileName));
         }
 
         // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
