@@ -164,7 +164,6 @@ function upload(event)
             {
                 // If a file with the same hash is in the gallery, skip the upload
                 const hash = sha256(buffer);
-                console.log('hash ' + hash);
                 if (hashes.has(hash))
                 {
                     filesSkipped++;
@@ -199,7 +198,7 @@ function upload(event)
             })
             .catch((err) =>
             {
-                console.log('Upload failed: ' + err.stack + '\n' + err.toString());
+                console.log('Upload "' + file.name + '" failed: ' + err.stack + '\n' + err.toString());
                 filesFailed++;
             })
             .finally(() =>

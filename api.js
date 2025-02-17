@@ -718,40 +718,41 @@ function processVideo(video, originalFileName)
             });
         }
 
-        let fileName = originalFileName;
+        // Creates a thumb from the specified video
+        const thumbFileName = makeKey() + '.jpg';
+        function captureThumb()
+        {
+            const tempThumbFileName = makeKey() + '.jpg';
+            const tempThumbPath  = 'thumbs/' + tempThumbFileName;
+            return ffpromise(ffmpeg(originalPath), (video) => 
+                {
+                    video.screenshots({filename: tempThumbFileName, folder: 'thumbs', timestamps: [Math.min(1, duration / 2)]})
+                })
+                .then(() =>
+                {
+                    // Size the thumbnail and delete the temporary file
+                    const sharpImage = sharp(tempThumbPath);
+                    return createThumb(sharpImage, 'thumbs/' + thumbFileName).then(() => fs.unlink(tempThumbPath));
+                });
+        }
+
+        const fileName = path.parse(originalFileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
+        const filePath = 'images/' + fileName;
         if (foundUnsupportedCodec)
         {
-            // Transcode
-            fileName = makeKey() + '.mp4';
-            const newPath = 'images/' + fileName;
-            //cleanup.push(newPath); // TODO
-            promises.push(ffpromise(ffmpeg(originalPath).output(newPath), (video) => video.run()));
+            // Transcode and capture a thumbnail in parallel (it doesn't seem possible to do this in a single command)
+            promises.push(Promise.all([
+                ffpromise(ffmpeg(originalPath).output(filePath), (video) => video.run()),
+                captureThumb()
+            ]));
         }
         else
         {
-            // Move the original
-            fileName = path.parse(fileName).name + '.mp4'; // TODO can we get a non-mp4 with the supported codec?
-            promises.push(fs.rename(originalPath, 'images/' + fileName));
+            // Capture a thumbnail and then move the original
+            promises.push(captureThumb()
+                .then(() => fs.rename(originalPath, filePath)));
         }
 
-        // Capture a thumbnail (note, it doesn't seem possible to do this with the transcode in a single command)
-        const tempThumbFileName = makeKey() + '.jpg';
-        const tempThumbPath  = 'thumbs/' + tempThumbFileName;
-        let thumbFileName;
-        promises.push(
-            ffpromise(ffmpeg(originalPath), (video) => 
-            {
-                video.screenshots({filename: tempThumbFileName, folder: 'thumbs', timestamps: [Math.min(1, duration / 2)]})
-            })
-            .then(() =>
-            {
-                // Size the thumbnail and delete the temporary file
-                const sharpImage = sharp(tempThumbPath);
-                thumbFileName = makeKey() + '.jpg';
-                return createThumb(sharpImage, 'thumbs/' + thumbFileName).then(() => fs.unlink(tempThumbPath));
-            }));
-
-    
         // Return the gallery entry
         return Promise.all(promises).then(() =>
         {
