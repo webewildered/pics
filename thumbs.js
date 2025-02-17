@@ -22,6 +22,7 @@ function updateThumbImage(index, thumb)
 
     if (index < gallery.view.length)
     {
+        thumb.attr('src', '');
         thumb.attr('src', 'thumbs/' + gallery.view[index].thumb);
         thumb.removeAttr('hidden');
     }
@@ -170,6 +171,35 @@ export function init(galleryIn)
         scroll.animate = true;
         scroll.target += deltaPx;
     });
+
+    // Handle key presses
+    window.addEventListener('keydown', (event) =>
+    {
+        if (!focus)
+        {
+            return;
+        }
+
+        switch (event.code)
+        {
+            case 'PageDown':
+                scroll.animate = true;
+                scroll.target += thumbContainer.height();
+                break;
+            case 'PageUp':
+                scroll.animate = true;
+                scroll.target -= thumbContainer.height();
+                break;
+            case 'Home':
+                scroll.animate = true;
+                scroll.target = 0;
+                break;
+            case 'End':
+                scroll.animate = true;
+                scroll.target = Number.POSITIVE_INFINITY;
+                break;
+        }
+    })
 }
 
 export function update(dt)
