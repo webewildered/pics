@@ -14,9 +14,11 @@ var enableControls = true; // Whether to show the top and bottom bars over the i
 var pressed = false; // true if the image has been clicked/touched and not yet released
 var mouseOrigin = new Point(); // Location where the image press began
 var activeIndex = 0; // Index of the current image in the gallery
+var activeEntry = null; // Gallery entry at the active index
 var eventTarget = new EventTarget();
 var hasMouse = true; // Whether to show mouse controls
 var lastNavigateDirection = 0; // Last direction passed to navigate()
+let deleting = false; // See gallery change event listener
 var focus = false;
 
 const TouchMode = Object.freeze(
@@ -68,7 +70,7 @@ function createImage(index, offset)
         .addClass('noSelect')
         element.appendTo('#imageView');
 
-    return {element: element, scroll: new Scroll()};
+    return {element: element, galleryEntry: galleryEntry, scroll: new Scroll()};
 }
 
 // Call after changing the current image
@@ -76,14 +78,14 @@ function onChangeImage()
 {
     // Get the current active image
     const image = images[numNeighborImages];
-    const galleryEntry = gallery.view[activeIndex];
+    activeEntry = gallery.view[activeIndex];
 
     // Update the metadata
-    const date = new Date(galleryEntry.date);
+    const date = new Date(activeEntry.date);
     const format = new Intl.DateTimeFormat();
     format.dateStyle = 'full';
     $('#time').text(date.toLocaleString(format));
-    $('#location').text(galleryEntry.location);
+    $('#location').text(activeEntry.title + ' ' + activeEntry.location);
 
     // Play video
     if (image.element.prop('nodeName').toLowerCase() === 'video')
@@ -92,12 +94,16 @@ function onChangeImage()
         video.play();
     }
 
-    // Toggle nav button visibility
-    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').attr('hidden', true) : $('#navButtonLeft').removeAttr('hidden');
-    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').attr('hidden', true) : $('#navButtonRight').removeAttr('hidden');
+    updateNavButtonVisibility();
 
     // Reset zoom state
     zoomScrollZ.reset(getMinZoom(activeIndex));
+}
+
+function updateNavButtonVisibility()
+{
+    (images[numNeighborImages - 1] == null || !hasMouse) ? $('#navButtonLeft').attr('hidden', true) : $('#navButtonLeft').removeAttr('hidden');
+    (images[numNeighborImages + 1] == null || !hasMouse) ? $('#navButtonRight').attr('hidden', true) : $('#navButtonRight').removeAttr('hidden');
 }
 
 // Call to close the image view
@@ -173,7 +179,9 @@ function navigate(direction)
 // Deletes the active image
 function deleteImage()
 {
+    deleting = true;
     gallery.remove(activeIndex);
+    deleting = false;
 
     // Close the image viewer if all images were removed
     if (gallery.view.length === 0)
@@ -225,6 +233,70 @@ export function init(galleryIn, hasMouseIn)
 {
     gallery = galleryIn;
     hasMouse = hasMouseIn;
+
+    // Listen for changes in the gallery view to apply them
+    gallery.addEventListener('change', (event) =>
+    {
+        // Nothing to do when not visible
+        if (images.length === 0)
+        {
+            return;
+        }
+
+        // If this change was triggered by deleteImage(), then deleteImage() will handle the change specially with an animated transition
+        if (deleting)
+        {
+            return;
+        }
+
+        // If the index of the active image changed, then update the active index
+        if (event.minIndex <= activeIndex && event.maxIndex >= activeIndex)
+        {
+            let found = false;
+            for (let i = 0; i < gallery.view.length; i++)
+            {
+                if (gallery.view[i] == activeEntry)
+                {
+                    found = true;
+                    activeIndex = i;
+                    break;
+                }
+            }
+            if (!found)
+            {
+                // Shouldn't happen
+                closeImage()
+            }
+        }
+        
+        // Check if any of the neighbor images changed
+        for (let i = 0; i < numTotalImages; i++)
+        {
+            const offset = i - numNeighborImages
+            const index = activeIndex + offset;
+            const galleryEntry = (index >= 0 && index < gallery.view.length) ? gallery.view[i] : null;
+            const image = images[i];
+            const currentGalleryEntry = image ? image.galleryEntry : null;
+            if (galleryEntry != currentGalleryEntry)
+            {
+                if (image)
+                {
+                    image.element.remove();
+                }
+
+                if (galleryEntry)
+                {
+                    images[i] = createImage(index, offset);
+                }
+                else
+                {
+                    images[i] = null;
+                }
+            }
+        }
+
+        updateNavButtonVisibility();
+    });
 
     // Mouse/tap input handlers
     $('#imageClick').on('mousedown', onMouseDown);
