@@ -13,23 +13,32 @@ var virtualRow = 0; // Index of the row that the first row of thumbnails represe
 var scroll = new Scroll();
 var eventTarget = new EventTarget();
 
-function updateThumbImage(index, thumb)
+function updateThumbImage(thumbIndex, thumbElement)
 {
-    if (thumb === undefined)
+    if (thumbElement === undefined)
     {
-        thumb = $('#thumbs > :nth-child(' + (index + 1) + ')');
+        thumbElement = $('#thumbs > :nth-child(' + (thumbIndex + 1) + ')');
     }
 
-    if (index < gallery.view.length)
+    const imageIndex = virtualRow * cols + thumbIndex;
+    if (imageIndex < gallery.view.length)
     {
-        thumb.attr('src', '');
-        thumb.attr('src', 'thumbs/' + gallery.view[index].thumb);
-        thumb.removeAttr('hidden');
+        thumbElement.attr('src', '');
+        thumbElement.attr('src', 'thumbs/' + gallery.view[imageIndex].thumb);
+        thumbElement.removeAttr('hidden');
     }
     else
     {
-        thumb.attr('hidden', true);
+        thumbElement.attr('hidden', true);
     }
+}
+
+function updateAllThumbs()
+{
+    $('#thumbs').children().each((index, element) =>
+    {
+        updateThumbImage(index, $(element));
+    });
 }
 
 function click(thumbIndex)
@@ -78,8 +87,10 @@ export function init(galleryIn)
                     .addClass('noSelect')
                     .appendTo(thumbs);
                 image.on('click', () => click(i));
-                updateThumbImage(i, image);
             }
+
+            // Update all thumb images
+            updateAllThumbs();
             
             // Set the thumbnails' sizes
             $('#thumbs').children()
@@ -99,11 +110,11 @@ export function init(galleryIn)
     gallery.addEventListener('change', (event) =>
     {
         // Find the range of changed images that are currently represented by thumbnails
-        const minThumb = cols * virtualRow;
-        const maxThumb = minThumb + $('#thumbs').children().length - 1;
-        const minIndex = Math.max(minThumb, event.minIndex) - minThumb;
-        const maxIndex = Math.min(maxThumb, event.maxIndex) - minThumb;
-        for (let i = minIndex; i <= maxIndex; i++)
+        const minImageIndex = cols * virtualRow;
+        const maxImageIndex = minImageIndex + $('#thumbs').children().length - 1;
+        const minThumbIndex = Math.max(minImageIndex, event.minIndex) - minImageIndex;
+        const maxThumbIndex = Math.min(maxImageIndex, event.maxIndex) - minImageIndex;
+        for (let i = minThumbIndex; i <= maxThumbIndex; i++)
         {
             updateThumbImage(i);
         }
@@ -225,8 +236,7 @@ export function update(dt)
     {
         $('#thumbs').children().each((index, element) =>
         {
-            const imageIndex = virtualRow * cols + index;
-            updateThumbImage(imageIndex, $(element));
+            updateThumbImage(index, $(element));
         });
     }
 
