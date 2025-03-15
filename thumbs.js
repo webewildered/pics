@@ -13,6 +13,8 @@ var virtualRow = 0; // Index of the row that the first row of thumbnails represe
 var scroll = new Scroll();
 var eventTarget = new EventTarget();
 var years = []; // List of {year:Number, index:Number} sorted by ascending year
+var timelineScrolling = false;
+var mouseY = 0;
 
 // // Measure year height
 // function getHeightFromClass(className) {
@@ -66,10 +68,19 @@ function click(thumbIndex)
     eventTarget.dispatchEvent(event);
 }
 
+function getTimelineRange()
+{
+    return $('#thumbTimeline').height() - yearHeight - 2 * yearMargin;
+}
+
 function getTimelineY(fraction)
 {
-    const range = $('#thumbTimeline').height() - yearHeight - 2 * yearMargin;
-    return yearMargin + fraction * range;
+    return yearMargin + fraction * getTimelineRange();
+}
+
+function getTimelineFraction(timelineY)
+{
+    return (timelineY - yearMargin) / getTimelineRange();
 }
 
 // Place year labels on the timeline
@@ -170,11 +181,11 @@ export function init(galleryIn)
                 $('#thumbs').children()
                     .attr('width', size)
                     .attr('height', size)
-                    .attr('class', 'thumb');
+                    .attr('class', 'thumb noSelect');
                 $('#thumbs img:nth-child(' + cols + 'n)')
                     .attr('width', sizeEnd)
                     .attr('height', size)
-                    .attr('class', 'thumb-end');
+                    .attr('class', 'thumb-end noSelect');
             }
         }
 
@@ -302,6 +313,11 @@ export function init(galleryIn)
                 break;
         }
     })
+
+    // Mouse input for timeline scrolling
+    $('#thumbTimeline').on('mousedown', () => timelineScrolling = true);
+    window.addEventListener('mouseup', () => timelineScrolling = false);
+    window.addEventListener('mousemove', (event) => mouseY = event.clientY);
 }
 
 export function update(dt)
@@ -317,7 +333,17 @@ export function update(dt)
     const maxScroll = Math.max(virtualThumbHeight - panelHeight, 0);
 
     // Animate scroll
-    scroll.update(dt, minScroll, maxScroll);
+    if (timelineScrolling)
+    {
+        let timelineY = mouseY - $('#thumbTimeline').offset().top - yearHeight / 2;
+        let timelineFraction = getTimelineFraction(timelineY);
+        timelineFraction = Math.min(Math.max(timelineFraction, 0), 1);
+        scroll.reset(timelineFraction * maxScroll);
+    }
+    else
+    {
+        scroll.update(dt, minScroll, maxScroll);
+    }
     const oldVirtualRow = virtualRow;
     const scrollClamped = Math.min(maxScroll, Math.max(minScroll, scroll.x));
     virtualRow = Math.floor(scrollClamped / size);
