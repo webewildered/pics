@@ -102,7 +102,7 @@ export default class Gallery extends EventTarget
     // Converts an image entry loaded from json to one that's ready to use at runtime
     #toRuntime(image)
     {
-        image.date = Date.parse(image.date);
+        image.date = new Date(image.date);
     }
 
     // Fires an event that the view changed

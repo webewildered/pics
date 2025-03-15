@@ -12,6 +12,24 @@ var sizeEnd = 0; // Width of the last thumbnail in column, slightly smaller than
 var virtualRow = 0; // Index of the row that the first row of thumbnails represents
 var scroll = new Scroll();
 var eventTarget = new EventTarget();
+var years = []; // List of {year:Number, index:Number} sorted by ascending year
+
+// // Measure year height
+// function getHeightFromClass(className) {
+//     const tempElement = document.createElement('div');
+//     tempElement.className = className;
+//     tempElement.textContent = '1234'; // Some text is needed to apply styles
+//     tempElement.style.position = 'absolute';
+//     tempElement.style.visibility = 'hidden';
+//     document.body.appendChild(tempElement);
+//     const height = tempElement.getBoundingClientRect().height;
+//     document.body.removeChild(tempElement);
+//     return parseFloat(height); // Convert 'px' to a number
+// }
+// const yearHeight = getHeightFromClass('year');
+const yearHeight = 18;
+const yearMargin = 5;
+const yearSpace = yearHeight + yearMargin;
 
 function updateThumbImage(thumbIndex, thumbElement)
 {
@@ -48,6 +66,55 @@ function click(thumbIndex)
     eventTarget.dispatchEvent(event);
 }
 
+function getTimelineY(fraction)
+{
+    const range = $('#thumbTimeline').height() - yearHeight - 2 * yearMargin;
+    return yearMargin + fraction * range;
+}
+
+// Place year labels on the timeline
+function updateYears()
+{
+    const timeline = $('#thumbTimeline');
+    timeline.find('.year').remove();
+    const galleryRows = Math.ceil(gallery.view.length / cols);
+    const visibleRows = timeline.height() / size;
+    const scrollRows = galleryRows - visibleRows;
+    if (scrollRows > 0)
+    {
+        let lastY = -yearSpace;
+        let lastElem = null;
+        for (let i = 0; i < years.length; i++)
+        {
+            const year = years[i];
+            const yearRow = Math.floor(year.index / cols);
+            const yearFraction = Math.min(1, yearRow / scrollRows);
+            const y = getTimelineY(yearFraction);
+            const hasSpace = (y - lastY >= yearSpace);
+            if (!hasSpace)
+            {
+                if (i == years.length - 1 && lastElem)
+                {
+                    // Always show the last year
+                    lastElem.remove();
+                }
+                else
+                {
+                    // Skip years that don't fit
+                    continue;
+                }
+            }
+            lastY = y;
+            lastElem = $('<div>')
+                .text(year.year)
+                .css('top', y)
+                .addClass('noSelect')
+                .addClass('year')
+                .appendTo(timeline);
+        }
+    }
+}
+
 export function init(galleryIn)
 {
     gallery = galleryIn;
@@ -64,7 +131,8 @@ export function init(galleryIn)
         const newSize = Math.ceil((width + margin) / newCols - margin);
         const newSizeEnd = width - (newCols - 1) * (newSize + margin);
         const newRows = Math.ceil(height / newSize) + 1;
-        if (newCols !== cols || newRows !== rows || newSize !== size || newSizeEnd !== sizeEnd)
+        const needResize = (newCols !== cols || newSize !== size || newSizeEnd !== sizeEnd);
+        if (newRows !== rows || needResize)
         {
             cols = newCols;
             rows = newRows;
@@ -74,34 +142,43 @@ export function init(galleryIn)
             // Adjust the number of thumbnails
             const numThumbs = $('#thumbs').children().length;
             const newNumThumbs = cols * rows;
-            if (numThumbs > newNumThumbs)
-            {
-                // Remove the excess thumbnails
-                $('#thumbs').children().slice(newNumThumbs - numThumbs).remove();
-            }
-            for (let i = numThumbs; i < newNumThumbs; i++)
-            {
-                // Add a thumbnail
-                const image = $('<img>')
-                    .attr('draggable', false)
-                    .addClass('noSelect')
-                    .appendTo(thumbs);
-                image.on('click', () => click(i));
-            }
 
-            // Update all thumb images
-            updateAllThumbs();
-            
-            // Set the thumbnails' sizes
-            $('#thumbs').children()
-                .attr('width', size)
-                .attr('height', size)
-                .attr('class', 'thumb');
-            $('#thumbs img:nth-child(' + cols + 'n)')
-                .attr('width', sizeEnd)
-                .attr('height', size)
-                .attr('class', 'thumb-end');
+            if (numThumbs != newNumThumbs)
+            {
+                if (numThumbs > newNumThumbs)
+                {
+                    // Remove the excess thumbnails
+                    $('#thumbs').children().slice(newNumThumbs - numThumbs).remove();
+                }
+                for (let i = numThumbs; i < newNumThumbs; i++)
+                {
+                    // Add a thumbnail
+                    const image = $('<img>')
+                        .attr('draggable', false)
+                        .addClass('noSelect')
+                        .appendTo(thumbs);
+                    image.on('click', () => click(i));
+                }
+
+                // Update all thumb images
+                updateAllThumbs();
+            }
+                
+            if (needResize)
+            {
+                // Set the thumbnails' sizes
+                $('#thumbs').children()
+                    .attr('width', size)
+                    .attr('height', size)
+                    .attr('class', 'thumb');
+                $('#thumbs img:nth-child(' + cols + 'n)')
+                    .attr('width', sizeEnd)
+                    .attr('height', size)
+                    .attr('class', 'thumb-end');
+            }
         }
+
+        updateYears();
     }
     resize();
     new ResizeObserver(resize).observe(thumbContainer.get(0));
@@ -118,6 +195,20 @@ export function init(galleryIn)
         {
             updateThumbImage(i);
         }
+
+        // TODO can optimize this if it's a problem
+        years = [];
+        let lastYear = 0;
+        for (let i = 0; i < gallery.view.length; i++)
+        {
+            const year = gallery.view[i].date.getFullYear();
+            if (year > lastYear)
+            {
+                lastYear = year;
+                years.push({year: year, index: i});
+            }
+        }
+        updateYears();
     });
     
     // Handle touch input
@@ -234,11 +325,16 @@ export function update(dt)
     // Update the thumb images if necessary
     if (virtualRow !== oldVirtualRow)
     {
-        $('#thumbs').children().each((index, element) =>
+        thumbs.children().each((index, element) =>
         {
             updateThumbImage(index, $(element));
         });
     }
+
+    // Position the scroll line
+    const scrollFraction = scrollClamped / maxScroll;
+    const scrollY = getTimelineY(scrollFraction) + yearHeight / 2;
+    $('#thumbTimelineCursor').css('top', scrollY);
 
     // Position the thumbs
     const thumbDisplacement = scroll.x - virtualRow * size;
