@@ -555,17 +555,24 @@ function processImage(image, imageType, originalFileName)
             .then((exifData) =>
             {
                 // Extract date and time from exif, should be YYYY:MM:DD HH:MM:SS
-                var dateTime = exifData.exif.DateTimeOriginal;
-                const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
-                if (dateTimeMatches)
+                let dateTime = exifData.exif.DateTimeOriginal;
+                if (!dateTime)
                 {
-                    originalDate = new Date();
-                    originalDate.setFullYear(Number(dateTimeMatches[1]));
-                    originalDate.setMonth(Number(dateTimeMatches[2]));
-                    originalDate.setDate(Number(dateTimeMatches[3]));
-                    originalDate.setHours(Number(dateTimeMatches[4]));
-                    originalDate.setMinutes(Number(dateTimeMatches[5]));
-                    originalDate.setSeconds(Number(dateTimeMatches[6]));
+                    dateTime = exifData.exif.CreateDate;
+                }
+                if (dateTime)
+                {
+                    const dateTimeMatches = dateTime.match(/(\d\d\d\d):(\d\d):(\d\d) (\d\d):(\d\d):(\d\d)/);
+                    if (dateTimeMatches)
+                    {
+                        originalDate = new Date();
+                        originalDate.setFullYear(Number(dateTimeMatches[1]));
+                        originalDate.setMonth(Number(dateTimeMatches[2]));
+                        originalDate.setDate(Number(dateTimeMatches[3]));
+                        originalDate.setHours(Number(dateTimeMatches[4]));
+                        originalDate.setMinutes(Number(dateTimeMatches[5]));
+                        originalDate.setSeconds(Number(dateTimeMatches[6]));
+                    }
                 }
     
                 // Extract GPS coordinates from exif, should be degrees,minutes,seconds
