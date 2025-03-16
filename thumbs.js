@@ -126,9 +126,15 @@ function updateYears()
     }
 }
 
-export function init(galleryIn)
+export function init(galleryIn, hasMouseIn)
 {
     gallery = galleryIn;
+
+    // Hide the timeline scroller if there is no mouse
+    if (!hasMouseIn)
+    {
+        $('#thumbTimeline').hide();
+    }
 
     // Create and position thumbnails as the view resizes
     const thumbContainer = $('#thumbContainer');
