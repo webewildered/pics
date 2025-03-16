@@ -10,6 +10,7 @@ export default class Scroll
         this.boundStiffness = 0.9; // 0 to 1, how strong the bounds pull while grabbed
         this.angularFrequency = 10; // Angular frequency of the bounds spring after touch release (damping ratio = 1)
         this.debug = false;
+        this.enableAcceleration = false; // If true, repeated swipes build up scroll speed
     }
 
     reset(x = 0)
@@ -20,6 +21,8 @@ export default class Scroll
         this.target = x;
         this.animate = false;
         this.touch = false;
+        this.timeSinceLastRelease = Number.POSITIVE_INFINITY;
+        this.vLastRelease = 0;
     }
 
     grab()
@@ -32,10 +35,21 @@ export default class Scroll
     release()
     {
         this.touch = false;
+        if (this.enableAcceleration)
+        {
+            if (this.timeSinceLastRelease < 1 && Math.sign(this.v) === Math.sign(this.vLastRelease))
+            {
+                this.v += this.vLastRelease;
+            }
+            this.vLastRelease = this.v;
+            this.timeSinceLastRelease = 0;
+        }
     }
 
     update(dt, minScroll, maxScroll)
     {
+        this.timeSinceLastRelease += dt;
+
         if (this.animate)
         {
             // PC mode: Clamp and animate to the scroll target

@@ -11,6 +11,7 @@ var size = 0; // Displayed thumbnail size
 var sizeEnd = 0; // Width of the last thumbnail in column, slightly smaller than size if cols does not divide the client width
 var virtualRow = 0; // Index of the row that the first row of thumbnails represents
 var scroll = new Scroll();
+scroll.enableAcceleration = true;
 var eventTarget = new EventTarget();
 var years = []; // List of {year:Number, index:Number} sorted by ascending year
 var timelineScrolling = false;
