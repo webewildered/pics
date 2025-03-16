@@ -48,7 +48,7 @@ for (const key of params.keys())
 window.onload = () =>
 {
     // Init modules
-    thumbsView.init(gallery);
+    thumbsView.init(gallery, hasMouse);
     thumbsView.addEventListener('click', (event) =>
     {
         let thumbIndex = event.index;
