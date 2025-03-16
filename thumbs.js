@@ -343,8 +343,11 @@ export function update(dt)
     // Animate scroll
     if (!scrollInitialized)
     {
-        scroll.reset(maxScroll);
-        scrollInitialized = true;
+        if (maxScroll > 0)
+        {
+            scroll.reset(maxScroll);
+            scrollInitialized = true;
+        }
     }
     else if (timelineScrolling)
     {
