@@ -16,6 +16,7 @@ var eventTarget = new EventTarget();
 var years = []; // List of {year:Number, index:Number} sorted by ascending year
 var timelineScrolling = false;
 var mouseY = 0;
+var scrollInitialized = false; // Once the gallery loads, scroll to the bottom
 
 // // Measure year height
 // function getHeightFromClass(className) {
@@ -340,7 +341,12 @@ export function update(dt)
     const maxScroll = Math.max(virtualThumbHeight - panelHeight, 0);
 
     // Animate scroll
-    if (timelineScrolling)
+    if (!scrollInitialized)
+    {
+        scroll.reset(maxScroll);
+        scrollInitialized = true;
+    }
+    else if (timelineScrolling)
     {
         let timelineY = mouseY - $('#thumbTimeline').offset().top - yearHeight / 2;
         let timelineFraction = getTimelineFraction(timelineY);
