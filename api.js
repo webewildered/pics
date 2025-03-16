@@ -535,15 +535,15 @@ function processImage(image, imageType, originalFileName)
             .metadata()
             .then((metadata) =>
             {
-                if (metadata.orientation && metadata.orientation <= 4)
-                {
-                    nativeWidth = metadata.width;
-                    nativeHeight = metadata.height;
-                }
-                else
+                if (metadata.orientation && metadata.orientation > 4)
                 {
                     nativeWidth = metadata.height;
                     nativeHeight = metadata.width;
+                }
+                else
+                {
+                    nativeWidth = metadata.width;
+                    nativeHeight = metadata.height;
                 }
             })
         );
