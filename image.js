@@ -7,18 +7,18 @@ const numNeighborImages = 1; // Number of image/video elements to each side of t
 const numTotalImages = numNeighborImages * 2 + 1;
 const maxZoom = Math.log(4);
 
-var gallery = null;
+var album = null;
 var images = []; // List of image/video elements in order from left to right. Active one is in the middle of the array. May contain nulls.
 var zoomCenter = new Point(); // Point in image space to zoom about, relative to the center of the image
 var enableControls = true; // Whether to show the top and bottom bars over the image
 var pressed = false; // true if the image has been clicked/touched and not yet released
 var mouseOrigin = new Point(); // Location where the image press began
-var activeIndex = 0; // Index of the current image in the gallery
-var activeEntry = null; // Gallery entry at the active index
+var activeIndex = 0; // Index of the current image in the album
+var activeEntry = null; // Album entry at the active index
 var eventTarget = new EventTarget();
 var hasMouse = true; // Whether to show mouse controls
 var lastNavigateDirection = 0; // Last direction passed to navigate()
-let deleting = false; // See gallery change event listener
+let deleting = false; // See album change event listener
 var focus = false;
 
 const TouchMode = Object.freeze(
@@ -41,18 +41,18 @@ var zoomScrollZ = new Scroll();
 zoomScrollZ.boundStiffness = 0.8;
 var zoomScrollRangeExtension = new Point();
 
-// Create an image or video element for the gallery entry at the given index.
+// Create an image or video element for the album entry at the given index.
 // Returns null if there is no entry at that index.
 function createImage(index, offset)
 {
-    if (index < 0 || index >= gallery.view.length)
+    if (index < 0 || index >= album.view.length)
     {
         return null;
     }
 
-    const galleryEntry = gallery.view[index];
-    const sourcePath = 'images/' + galleryEntry.file;
-    const isVideo = galleryEntry.file.endsWith('.mp4');
+    const object = album.view[index];
+    const sourcePath = 'images/' + object.file;
+    const isVideo = object.file.endsWith('.mp4');
     let element;
     if (isVideo)
     {
@@ -70,7 +70,7 @@ function createImage(index, offset)
         .addClass('noSelect')
         element.appendTo('#imageView');
 
-    return {element: element, galleryEntry: galleryEntry, scroll: new Scroll()};
+    return {element: element, object: object, scroll: new Scroll()};
 }
 
 // Call after changing the current image
@@ -78,7 +78,7 @@ function onChangeImage()
 {
     // Get the current active image
     const image = images[numNeighborImages];
-    activeEntry = gallery.view[activeIndex];
+    activeEntry = album.view[activeIndex];
 
     // Update the metadata
     const date = new Date(activeEntry.date);
@@ -180,11 +180,11 @@ function navigate(direction)
 function deleteImage()
 {
     deleting = true;
-    gallery.remove(activeIndex);
+    album.remove(activeIndex);
     deleting = false;
 
     // Close the image viewer if all images were removed
-    if (gallery.view.length === 0)
+    if (album.view.length === 0)
     {
         closeImage();
     }
@@ -195,7 +195,7 @@ function deleteImage()
         images.splice(numNeighborImages, 1);
 
         // Shift in a new image
-        const forward = (lastNavigateDirection >= 0 && activeIndex < gallery.view.length) || activeIndex === 0;
+        const forward = (lastNavigateDirection >= 0 && activeIndex < album.view.length) || activeIndex === 0;
         const direction = forward ? 1 : -1;
         const offset = direction * (numNeighborImages + (forward ? 0 : 1)); // If forward, all images past the removed one had their index reduced by one
         const newImage = createImage(activeIndex + offset, offset);
@@ -229,13 +229,13 @@ function showControls(show, immediate)
     fade($('.imageBar'), enableControls, immediate ? 0 : 0.1);
 }
 
-export function init(galleryIn, hasMouseIn)
+export function init(albumIn, hasMouseIn)
 {
-    gallery = galleryIn;
+    album = albumIn;
     hasMouse = hasMouseIn;
 
-    // Listen for changes in the gallery view to apply them
-    gallery.addEventListener('change', (event) =>
+    // Listen for changes in the album view to apply them
+    album.addEventListener('change', (event) =>
     {
         // Nothing to do when not visible
         if (images.length === 0)
@@ -253,9 +253,9 @@ export function init(galleryIn, hasMouseIn)
         if (event.minIndex <= activeIndex && event.maxIndex >= activeIndex)
         {
             let found = false;
-            for (let i = 0; i < gallery.view.length; i++)
+            for (let i = 0; i < album.view.length; i++)
             {
-                if (gallery.view[i] == activeEntry)
+                if (album.view[i] == activeEntry)
                 {
                     found = true;
                     activeIndex = i;
@@ -274,17 +274,17 @@ export function init(galleryIn, hasMouseIn)
         {
             const offset = i - numNeighborImages
             const index = activeIndex + offset;
-            const galleryEntry = (index >= 0 && index < gallery.view.length) ? gallery.view[i] : null;
+            const object = (index >= 0 && index < album.view.length) ? album.view[i] : null;
             const image = images[i];
-            const currentGalleryEntry = image ? image.galleryEntry : null;
-            if (galleryEntry != currentGalleryEntry)
+            const currentObject = image ? image.object : null;
+            if (object != currentObject)
             {
                 if (image)
                 {
                     image.element.remove();
                 }
 
-                if (galleryEntry)
+                if (object)
                 {
                     images[i] = createImage(index, offset);
                 }
@@ -636,8 +636,8 @@ function getActiveImage() { return images[numNeighborImages]; }
 
 function getNativeSize(index)
 {
-    const galleryEntry = gallery.view[index];
-    return new Point(galleryEntry.width, galleryEntry.height);
+    const object = album.view[index];
+    return new Point(object.width, object.height);
 }
 
 function getZoomScale() { return Math.pow(Math.E, zoomScrollZ.x); }
@@ -766,7 +766,7 @@ export function update(dt)
         image.scroll.update(dt, 0, 0);
         const offset = i - numNeighborImages;
         const index = activeIndex + offset;
-        const galleryEntry = gallery.view[activeIndex + offset];
+        const object = album.view[activeIndex + offset];
         const scaledSize = getScaledSize(index, offset === 0);
         const zoomScroll = (offset === 0) ? new Point(zoomScrollX.x, zoomScrollY.x) : new Point();
         const localScroll = new Point(image.scroll.x, 0);

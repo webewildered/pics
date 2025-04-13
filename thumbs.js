@@ -3,7 +3,7 @@ import Feeler from './feeler.js';
 
 const res = 200; // Native size of thumbnail images in px
 const margin = 2; // Horizontal space between thumbnails in px
-var gallery = null;
+var album = null;
 var focus = true; // Whether the view should handle global input events (mouse wheel, keystroke)
 var cols = 0; // Number of thumbnails per row
 var rows = 0; // Number of rows of thumbnails
@@ -16,7 +16,7 @@ var eventTarget = new EventTarget();
 var years = []; // List of {year:Number, index:Number} sorted by ascending year
 var timelineScrolling = false;
 var mouseY = 0;
-var scrollInitialized = false; // Once the gallery loads, scroll to the bottom
+var scrollInitialized = false; // Once the album loads, scroll to the bottom
 
 // // Measure year height
 // function getHeightFromClass(className) {
@@ -43,10 +43,10 @@ function updateThumbImage(thumbIndex, thumbElement)
     }
 
     const imageIndex = virtualRow * cols + thumbIndex;
-    if (imageIndex < gallery.view.length)
+    if (imageIndex < album.view.length)
     {
         thumbElement.attr('src', '');
-        thumbElement.attr('src', 'thumbs/' + gallery.view[imageIndex].thumb);
+        thumbElement.attr('src', 'thumbs/' + album.view[imageIndex].thumb);
         thumbElement.removeAttr('hidden');
     }
     else
@@ -90,9 +90,9 @@ function updateYears()
 {
     const timeline = $('#thumbTimeline');
     timeline.find('.year').remove();
-    const galleryRows = Math.ceil(gallery.view.length / cols);
+    const albumRows = Math.ceil(album.view.length / cols);
     const visibleRows = timeline.height() / size;
-    const scrollRows = galleryRows - visibleRows;
+    const scrollRows = albumRows - visibleRows;
     if (scrollRows > 0)
     {
         let lastY = -yearSpace;
@@ -128,9 +128,9 @@ function updateYears()
     }
 }
 
-export function init(galleryIn, hasMouseIn)
+export function init(albumIn, hasMouseIn)
 {
-    gallery = galleryIn;
+    album = albumIn;
 
     // Hide the timeline scroller if there is no mouse
     if (!hasMouseIn)
@@ -202,8 +202,8 @@ export function init(galleryIn, hasMouseIn)
     resize();
     new ResizeObserver(resize).observe(thumbContainer.get(0));
     
-    // Listen for changes in the gallery view to apply them to the thumbnails
-    gallery.addEventListener('change', (event) =>
+    // Listen for changes in the album view to apply them to the thumbnails
+    album.addEventListener('change', (event) =>
     {
         // Find the range of changed images that are currently represented by thumbnails
         const minImageIndex = cols * virtualRow;
@@ -218,9 +218,9 @@ export function init(galleryIn, hasMouseIn)
         // TODO can optimize this if it's a problem
         years = [];
         let lastYear = 0;
-        for (let i = 0; i < gallery.view.length; i++)
+        for (let i = 0; i < album.view.length; i++)
         {
-            const year = gallery.view[i].date.getFullYear();
+            const year = album.view[i].date.getFullYear();
             if (year > lastYear)
             {
                 lastYear = year;
@@ -334,7 +334,7 @@ export function update(dt)
     const thumbContainer = $('#thumbContainer');
 
     // Calculate the scroll range
-    const virtualThumbRows = Math.ceil(gallery.view.length / cols);
+    const virtualThumbRows = Math.ceil(album.view.length / cols);
     const virtualThumbHeight = virtualThumbRows * size;
     const minScroll = 0;
     const panelHeight = thumbContainer.height();

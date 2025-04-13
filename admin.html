@@ -16,40 +16,38 @@ function addLog(str)
     $('<br>').appendTo(logDiv);
 }
 
-async function addGallery(keys)
+async function addCollection(collectionKey)
 {
-    const galleryKey = keys.galleryKey;
-    const writeKey = keys.writeKey;
-    const galleryList = $('#galleryList');
-    const li = $('<li>').appendTo(galleryList);
-    const link = $('<a>').attr('href', 'index.html?' + writeKey).text(galleryKey).appendTo(li);
+    const collectionList = $('#collectionList');
+    const li = $('<li>').appendTo(collectionList);
+    const link = $('<a>').attr('href', 'index.html?' + collectionKey).text(collectionKey).appendTo(li);
     $('<span>').text(' ').appendTo(li);
-    $('<button>').text('delete').click(() => deleteGallery(li, galleryKey)).appendTo(li);
-    const galleryPath = 'galleries/' + galleryKey + '.json';
-    fetch(galleryPath)
+    $('<button>').text('delete').click(() => deleteCollection(li, collectionKey)).appendTo(li);
+    const collectionPath = 'albums/' + collectionKey + '.json';
+    fetch(collectionPath)
         .then(response => responseToObject(response))
-        .then(gallery =>
+        .then(collection =>
         {
-            link.text(gallery.name + ' (' + galleryKey + ')');
+            link.text(collection.name + ' (' + collection.main + ')');
         })
         .catch((err) =>
         {
-            link.text(galleryKey + ' (missing! ' + err + ')');
+            link.text(collectionKey + ' (missing! ' + err + ')');
         });
 }
 
 // On page load
 window.onload = () =>
 {
-    // Load the gallery list
+    // Load the collection list
     fetch('admin/' + getAdminKey() + '.json')
         .then(response => responseToObject(response))
-        .then((galleryList) =>
+        .then((collectionList) =>
         {
             $('#adminPanel').show();
-            for (const galleryKey of galleryList.galleries)
+            for (const collectionKey of collectionList.collections)
             {
-                addGallery(galleryKey);
+                addCollection(collectionKey);
             }
         })
         .catch((error) =>
@@ -84,18 +82,18 @@ function adminApi(api, request)
         .then((response) => responseToObject(response));
 }
 
-// On create gallery button click
-function createGallery()
+// On create collection button click
+function createCollection()
 {
-    adminApi('createGallery', { name: $('#galleryName').val() })
-        .then((json) => addGallery(json))
+    adminApi('createCollection', { name: $('#collectionName').val() })
+        .then((json) => addCollection(json))
         .catch((err) => console.log(err));
 }
 
-// On delete gallery button click
-function deleteGallery(li, galleryKey)
+// On delete collection button click
+function deleteCollection(li, collectionKey)
 {
-    adminApi('deleteGallery', { galleryKey: galleryKey })
+    adminApi('deleteCollection', { collectionKey: collectionKey })
         .then((json) => { li.remove(); })
         .catch((err) => console.log(err));
 }
@@ -111,7 +109,7 @@ function test()
 function clearAll()
 {
     adminApi('clear', {})
-        .then(() => { $('#galleryList').empty(); })
+        .then(() => { $('#collectionList').empty(); })
         .catch((err) => console.log(err));
 }
 
@@ -119,10 +117,10 @@ function clearAll()
 </head>
 <body>
     <div id="adminPanel" hidden>
-        <input type="text" placeholder="New gallery name" id="galleryName"></input>
-        <button onclick="createGallery()">Create gallery</button>
+        <input type="text" placeholder="New collection name" id="collectionName"></input>
+        <button onclick="createCollection()">Create collection</button>
         <br />
-        <ul id="galleryList">
+        <ul id="collectionList">
         </ul>
     </div>
     <br /><br />

@@ -14,7 +14,7 @@
         {
             "type": "chrome",
             "request": "launch",
-            "name": "Gallery",
+            "name": "Album",
             "url": "http://localhost/index.html?xbfze11h7xsue4cfrkdv",
             "runtimeArgs": ["--incognito"]
         },
@@ -28,7 +28,7 @@
         {
             "type": "firefox",
             "request": "launch",
-            "name": "FF Gallery",
+            "name": "FF Album",
             "url": "http://localhost/index.html?6nobzpv3lgsa9forjgcf"
         },
     ]

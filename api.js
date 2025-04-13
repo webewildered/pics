@@ -16,6 +16,8 @@ const process = require('node:process');
 // Utilities
 //
 
+function albumPath(key) { return 'albums/' + key + '.json'; }
+
 // Detects the type of the file. file:Buffer, fileName:String
 function getFileType(file, fileName)
 {
@@ -268,11 +270,11 @@ app.post('/api/clear', function (req, res)
             clearDirectory('images'),
             clearDirectory('originals'),
             clearDirectory('thumbs'),
-            clearDirectory('galleries')
+            clearDirectory('albums')
         ])
         .then(() =>
         {
-            adminJson.galleries = [];
+            adminJson.collections = [];
             return {}; // Return empty result to the user
         });
     });
@@ -306,79 +308,95 @@ app.post('/api/test', function (req, res)
 });
 
 //
-// Create a photo gallery
+// Create a collection
 //
 
-app.post('/api/createGallery', function (req, res)
+function initAlbum(name) { return {name: name, objects: []}; }
+
+app.post('/api/createCollection', function (req, res)
 {
     adminOp(req, res, (requestJson, adminJson) =>
     {
         const promises = [];
 
-        // Create the gallery
-        const writeKey = makeKey();
-        const galleryKey = makeKey();
-        let gallery = {};
-        gallery.name = requestJson.name;
-        gallery.images = [];
-        promises.push(fs.writeFile('galleries/' + galleryKey + '.json', JSON.stringify(gallery)));
-        
-        // Add the write permission file
-        const writePath = 'galleries/' + writeKey + '.json';
-        promises.push(fs.writeFile(writePath, JSON.stringify({galleryKey: galleryKey})));
-        
-        // Add the gallery to the list
-        const galleryKeys = {galleryKey: galleryKey, writeKey: writeKey};
-        adminJson.galleries.push(galleryKeys);
+        // Create the main album
+        const mainKey = makeKey();
+        const mainAlbum = initAlbum(requestJson.name);
+        promises.push(fs.writeFile(albumPath(mainKey), JSON.stringify(mainAlbum)));
 
-        // Return the gallery keys to the client
-        return Promise.all(promises).then(() => galleryKeys);
+        // Create the deleted album
+        const deletedKey = makeKey();
+        const deletedAlbum = initAlbum(requestJson.name + ' (deleted)');
+        promises.push(fs.writeFile(albumPath(deletedKey), JSON.stringify(deletedAlbum)));
+
+        // Create the collection
+        const collectionKey = makeKey();
+        const collection =
+        {
+            name: requestJson.name,
+            main: mainKey,
+            deleted: deletedKey,
+            albums: []
+        };
+        promises.push(fs.writeFile(albumPath(collectionKey), JSON.stringify(collection)));
+        
+        // Add the collection to the admin list
+        adminJson.collections.push(collectionKey);
+
+        // Return the collection key to the client
+        return Promise.all(promises).then(() => collectionKey);
     });
 });
 
 //
-// Delete a photo gallery
+// Delete a collection
 //
 
-app.post('/api/deleteGallery', function (req, res)
+app.post('/api/deleteCollection', function (req, res)
 {
     adminOp(req, res, (requestJson, adminJson) =>
     {
-        const promises = [];
-        const galleryKey = requestJson.galleryKey;
+        const collectionKey = requestJson.collectionKey;
                 
         // Remove the entry from the admin file
-        let writeKey;
-        for (let index = 0; index < adminJson.galleries.length; index++)
+        let found = false;
+        for (let index = 0; index < adminJson.collections.length; index++)
         {
-            const galleryKeys = adminJson.galleries[index];
-            if (galleryKeys.galleryKey === galleryKey)
+            if (adminJson.collections[index] === collectionKey)
             {
-                writeKey = galleryKeys.writeKey;
-                adminJson.galleries.splice(index, 1);
+                adminJson.collections.splice(index, 1);
+                found = true;
                 break;
             }
         }
-        if (writeKey === undefined)
+        if (!found)
         {
-            throw new Error('gallery ' + galleryKey + ' was not in the admin list');
+            throw new Error('Collection ' + collectionKey + ' was not in the admin list');
         }
 
-        // Delete the gallery file
-        const galleryPath = 'galleries/' + galleryKey + '.json';
-        promises.push(fs.unlink(galleryPath));
-
-        // Delete the write key file
-        const keyPath = 'galleries/' + writeKey + '.json';
-        promises.push(fs.unlink(keyPath));
-
-        let result = {galleryKey: galleryKey};
-        return Promise.all(promises).then(() => result);
+        // Load the collection
+        const collectionPath = albumPath(collectionKey);
+        return fs.readFile(collectionPath, 'utf8')
+            .then((str) =>
+            {
+                // Delete all of its albums
+                const collection = JSON.parse(collection);
+                const promises = [];
+                promises.push(fs.unlink(albumPath(collection.main)));
+                promises.push(fs.unlink(albumPath(collection.deleted)));
+                for (const album of collection.albums)
+                {
+                    promises.push(fs.unlink(albumPath(album)));
+                }
+                return Promise.all(promises);
+            })
+            // Delete the collection itself
+            .then(() => fs.unlink(collectionPath));
     });
 });
 
 //
-// Upload photos
+// Add an object to a collection
 //
 
 function timems()
@@ -416,19 +434,18 @@ app.post('/api/upload', upload.single('image'), function (req, res)
     }
 
     let cleanup = []; // List of files to delete in case of failure
-    let galleryKey;
-    
+    let albumKey;
     const file = req.file;
     let originalFileName = file.filename;
     const originalPath = 'originals/' + originalFileName;
     cleanup.push(originalPath);
 
-    // Validate the write key and get the gallery key
-    const keyPath = 'galleries/' + req.body.writeKey + '.json';
-    fs.readFile(keyPath)
-        .then((keyFile) =>
+    // Validate the collection key and get the main album key
+    const collectionPath = albumPath(req.body.collectionKey);
+    fs.readFile(collectionPath)
+        .then((collectionStr) =>
         {
-            galleryKey = JSON.parse(keyFile).galleryKey;
+            albumKey = JSON.parse(collectionStr).main;
 
             // Read the image file
             return fs.readFile(originalPath);
@@ -455,21 +472,20 @@ app.post('/api/upload', upload.single('image'), function (req, res)
                 throw new Error('Unknown file type "' + type + '"');
             }
         })
-        .then((galleryEntry) =>
+        .then((object) =>
         {
-            // Update the gallery
-            galleryEntry.title = file.originalname;
-            galleryEntry.hash = req.body.hash;
-            const galleryPath = 'galleries/' + galleryKey + '.json';
-            return updateJsonAtomic(galleryPath, (gallery) =>
+            // Update the album
+            object.title = file.originalname;
+            object.hash = req.body.hash;
+            return updateJsonAtomic(albumPath(albumKey), (album) =>
             {
-                gallery.images.push(galleryEntry);
+                album.objects.push(object);
             })
             .then(() =>
             {
-                // Send the new gallery entry to the client
+                // Send the new object to the client
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(galleryEntry));
+                res.end(JSON.stringify(object));
             })
         })
         .catch((err) =>
@@ -604,7 +620,7 @@ function processImage(image, imageType, originalFileName)
             .then((reverseGeocodeResult) => { location = reverseGeocodeResult; })
         );
     
-        // Return the gallery entry
+        // Return the object
         return Promise.all(promises).then(() =>
         {
             logTime('process ' + originalFileName)
@@ -760,7 +776,7 @@ function processVideo(video, originalFileName)
                 .then(() => fs.rename(originalPath, filePath)));
         }
 
-        // Return the gallery entry
+        // Return the object
         return Promise.all(promises).then(() =>
         {
             return {
@@ -846,30 +862,45 @@ function reverseGeocode(latitude, longitude)
         })
 }
 
-app.post('/api/deleteImage', function (req, res)
+app.post('/api/deleteObject', function (req, res)
 {
     readRequest(req)
         .then(requestObject =>
         {
-            // Validate the write key and get the gallery key
-            const keyPath = 'galleries/' + requestObject.writeKey + '.json';
-            return fs.readFile(keyPath)
-                .then((keyFile) =>
+            // Validate the collection key and album key
+            return fs.readFile(albumPath(requestObject.collectionKey))
+                .then((collectionStr) =>
+                {
+                    const collection = JSON.parse(collectionStr);
+                    let albumKey = requestObject.albumKey ?? collection.main;
+                    if (albumKey !== collection.main && albumKey !== collection.deleted && !collection.albums.contains(albumKey))
                     {
-                        galleryKey = JSON.parse(keyFile).galleryKey;
-                        const galleryPath = 'galleries/' + galleryKey + '.json';
-                        return updateJsonAtomic(galleryPath, gallery =>
+                        throw new Error('Album ' + albumKey + ' does not belong to collection ' + collectionKey);
+                    }
+                    return updateJsonAtomic(albumPath(albumKey), album =>
+                    {
+                        for (let i = 0; i < album.objects.length; i++)
                         {
-                            for (let i = 0; i < gallery.images.length; i++)
+                            const object = album.objects[i];
+                            if (object.file === requestObject.file)
                             {
-                                if (gallery.images[i].file === requestObject.file)
-                                {
-                                    gallery.images.splice(i, 1);
-                                    return;
-                                }
+                                album.objects.splice(i, 1);
+                                return object;
                             }
-                        })
+                        }
+                    })
+                    .then(object =>
+                    {
+                        // If an object was deleted from the main album, move it to the deleted album
+                        if (object && albumKey === collection.main)
+                        {
+                            return updateJsonAtomic(albumPath(collection.deleted), deletedAlbum =>
+                            {
+                                deletedAlbum.objects.push(object);
+                            });
+                        }
                     });
+                });
         })
         .then(() =>
         {

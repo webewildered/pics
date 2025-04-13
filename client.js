@@ -1,11 +1,11 @@
 import Feeler from './feeler.js';
-import Gallery from './gallery.js';
+import Album from './album.js';
 import * as thumbsView from './thumbs.js';
 import * as imageView from './image.js';
 import * as fade from './fade.js'
 import { sha256 } from './sha256.js'; // note, crypto.subtle requires https
 
-const gallery = new Gallery();
+const album = new Album();
 
 //
 // Read parameters
@@ -33,14 +33,14 @@ else
     }
 }
 
-// Get the gallery key and use it to load the gallery
-var galleryKey;
+// Get the album key and use it to load the album
+var albumKey;
 for (const key of params.keys())
 {
     const val = params.get(key);
     if (val === '')
     {
-        galleryKey = key;
+        albumKey = key;
         break;
     }
 }
@@ -48,7 +48,7 @@ for (const key of params.keys())
 window.onload = () =>
 {
     // Init modules
-    thumbsView.init(gallery, hasMouse);
+    thumbsView.init(album, hasMouse);
     thumbsView.addEventListener('click', (event) =>
     {
         let thumbIndex = event.index;
@@ -56,7 +56,7 @@ window.onload = () =>
         thumbsView.setFocus(false);
     });
 
-    imageView.init(gallery, hasMouse);
+    imageView.init(album, hasMouse);
     imageView.addEventListener('close', () =>
     {
         thumbsView.setFocus(true);
@@ -67,18 +67,18 @@ window.onload = () =>
     const viewport = document.querySelector('meta[name="viewport"]');
     viewport.setAttribute('content', `width=device-width, initial-scale=${scale}, maximum-scale=${scale}, user-scalable=no`);
 
-    // Load the gallery
-    gallery.load(galleryKey)
+    // Load the album
+    album.load(albumKey)
     .then(() =>
     {
-        if (gallery.writeKey)
+        if (album.collectionKey)
         {
-            $('#galleryBar').removeAttr('hidden');
+            $('#albumBar').removeAttr('hidden');
         }
     })
     .catch((err) =>
     {
-        console.log('Error loading gallery: ' + err);
+        console.log('Error loading album: ' + err);
     });
     
     // Handle input events
@@ -90,7 +90,7 @@ window.onload = () =>
     // Disable touch on elements that don't otherwise have touch control.
     // This prevents accidentally changing the browser zoom while pinch zooming an image.
     const disableTouch = (jqElem) => jqElem.each((idx, elem) => Feeler.disable(elem));
-    disableTouch($('#galleryBar'));
+    disableTouch($('#albumBar'));
     disableTouch($('.imageBar'));
 
     // Animate
@@ -100,11 +100,11 @@ window.onload = () =>
 
 function upload(event)
 {
-    // Collect the set of hashes in the gallery
+    // Collect the set of hashes in the album
     let hashes = new Set();
-    for (const galleryEntry of gallery.images)
+    for (const object of album.objects)
     {
-        hashes.add(galleryEntry.hash);
+        hashes.add(objects.hash);
     }
 
     event.preventDefault();
@@ -162,7 +162,7 @@ function upload(event)
         file.arrayBuffer()
             .then(buffer => 
             {
-                // If a file with the same hash is in the gallery, skip the upload
+                // If a file with the same hash is in the album, skip the upload
                 const hash = sha256(buffer);
                 if (hashes.has(hash))
                 {
@@ -172,7 +172,7 @@ function upload(event)
 
                 // Upload the file
                 const formData = new FormData();
-                formData.append('writeKey', gallery.writeKey);
+                formData.append('collectionKey', album.collectionKey);
                 formData.append('image', file);
                 formData.append('hash', hash);
                 return fetch('api/upload', { method: 'POST', body: formData })
@@ -188,10 +188,10 @@ function upload(event)
                             }
                             else
                             {
-                                return response.json().then((galleryEntry) =>
+                                return response.json().then((object) =>
                                 {
-                                    console.log('Added ' + galleryEntry.title);
-                                    gallery.add(galleryEntry);
+                                    console.log('Added ' + object.title);
+                                    album.add(object);
                                 });
                             }
                         });
